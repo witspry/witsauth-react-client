@@ -22,10 +22,11 @@ describe('PKCE Utilities', () => {
     }
   });
 
-  it('generateCodeVerifier should return a 6 digit string', () => {
+  it('generateCodeVerifier should return a valid base64url string of appropriate length', () => {
     const verifier = generateCodeVerifier();
-    expect(verifier).toHaveLength(6);
-    expect(verifier).toMatch(/^[0-9]{6}$/);
+    expect(verifier.length).toBeGreaterThanOrEqual(43);
+    expect(verifier.length).toBeLessThanOrEqual(128);
+    expect(verifier).toMatch(/^[A-Za-z0-9\-_]+$/);
   });
 
   it('generateState should return a base64url string', () => {
