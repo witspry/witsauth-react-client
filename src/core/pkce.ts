@@ -1,12 +1,14 @@
 /**
- * Generates a cryptographically secure 6-digit code verifier
+ * Generates a cryptographically secure code verifier for PKCE
+ * RFC 7636 specifies it must be 43-128 characters long
  */
 export function generateCodeVerifier(): string {
-  const array = new Uint8Array(6);
+  const array = new Uint8Array(32);
   crypto.getRandomValues(array);
-  return Array.from(array)
-    .map(byte => (byte % 10).toString())
-    .join('');
+  return btoa(String.fromCharCode(...array))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '');
 }
 
 /**
