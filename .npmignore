@@ -1,0 +1,22 @@
+# Ignore everything by default
+*
+
+# But explicitly allow these files/folders to be packed
+!dist/
+!package.json
+!README.md
+!LICENSE
+
+# Double check that we definitely ignore source code, configs, and node_modules
+src/
+node_modules/
+tests/
+coverage/
+.github/
+.vscode/
+tsconfig.json
+tsconfig.node.json
+vite.config.ts
+vitest.config.ts
+.gitignore
+.npmignore
