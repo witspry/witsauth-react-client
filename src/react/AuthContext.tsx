@@ -30,16 +30,11 @@ export const AuthProvider: React.FC<{
         if (client.isAuthenticated()) {
           setAuthState({ isAuthenticated: true, isLoading: false });
         } else {
-          // If we have a refresh token but access token is expired, try refreshing
-          const storage = new TokenStorage();
-          if (storage.getItem('witsauth_refresh_token')) {
-            try {
-              await client.refreshAccessToken();
-              setAuthState({ isAuthenticated: true, isLoading: false });
-            } catch {
-              setAuthState({ isAuthenticated: false, isLoading: false });
-            }
-          } else {
+          // If access token is expired or missing, try refreshing
+          try {
+            await client.refreshAccessToken();
+            setAuthState({ isAuthenticated: true, isLoading: false });
+          } catch {
             setAuthState({ isAuthenticated: false, isLoading: false });
           }
         }
