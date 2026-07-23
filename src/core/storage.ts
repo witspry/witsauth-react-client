@@ -1,20 +1,24 @@
 import { STORAGE_KEYS } from '../models/types';
 
 export class TokenStorage {
+  private memoryStorage = new Map<string, string>();
+
   private getStorage(): Storage {
     // Only use localStorage if running in browser
     if (typeof window !== 'undefined' && window.localStorage) {
       return window.localStorage;
     }
+    
+    const store = this.memoryStorage;
     // Fallback in-memory storage for non-browser environments
     return {
-      getItem: () => null,
-      setItem: () => {},
-      removeItem: () => {},
-      clear: () => {},
-      length: 0,
-      key: () => null,
-    };
+      getItem: (key: string) => store.has(key) ? store.get(key) as string : null,
+      setItem: (key: string, value: string) => { store.set(key, value); },
+      removeItem: (key: string) => { store.delete(key); },
+      clear: () => { store.clear(); },
+      get length() { return store.size; },
+      key: (index: number) => Array.from(store.keys())[index] || null,
+    } as Storage;
   }
 
   setItem(key: string, value: string): void {
