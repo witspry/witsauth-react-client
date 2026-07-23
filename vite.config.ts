@@ -24,5 +24,5 @@ export default defineConfig({
       }
     }
   },
-  plugins: [dts()]
+  plugins: [dts({ exclude: ['**/*.spec.ts'] })]
 });
