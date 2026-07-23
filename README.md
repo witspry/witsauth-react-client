@@ -31,7 +31,7 @@ const authConfig = {
   authorizationEndpoint: 'https://api.yourdomain.com/auth/authorize',
   tokenEndpoint: 'https://api.yourdomain.com/auth/oauth/token',
   redirectUri: window.location.origin + '/auth/callback',
-  scopes: ['openid', 'profile', 'email']
+  scope: 'openid profile email'
 };
 
 function App() {
@@ -57,15 +57,15 @@ Use the `useAuth` hook to access user state and login/logout functions.
 import { useAuth } from '@witsauth/react-client';
 
 function Profile() {
-  const { user, login, logout, isLoading } = useAuth();
+  const { isAuthenticated, login, logout, isLoading } = useAuth();
 
   if (isLoading) return <div>Loading...</div>;
 
   return (
     <div>
-      {user ? (
+      {isAuthenticated ? (
         <>
-          <p>Welcome, {user.name}!</p>
+          <p>Welcome!</p>
           <button onClick={logout}>Logout</button>
         </>
       ) : (
@@ -89,5 +89,6 @@ export const apiClient = axios.create({
 });
 
 // The interceptor will automatically inject Authorization: Bearer <token>
-setupAxiosInterceptors(apiClient);
+// Note: You must pass the AuthClient instance, for example from useAuth().client
+// setupAxiosInterceptors(apiClient, authClient);
 ```
