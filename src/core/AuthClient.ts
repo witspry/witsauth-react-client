@@ -37,6 +37,11 @@ export class AuthClient {
     if (this.config.audience) params.append('audience', this.config.audience);
 
     const authUrl = `${this.config.authorizationEndpoint}?${params.toString()}`;
+    
+    if (typeof window === 'undefined' || !window.location) {
+      throw new Error('startAuthorization requires a browser environment to redirect the user.');
+    }
+
     window.location.href = authUrl;
   }
 
