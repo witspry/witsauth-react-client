@@ -145,12 +145,19 @@ export class AuthClient {
     return this.storage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
   }
 
-  isAuthenticated(): boolean {
+  getExpiresAt(): number | null {
     const expiresAt = this.storage.getItem(STORAGE_KEYS.TOKEN_EXPIRES_AT);
-    if (!expiresAt) return false;
+    if (!expiresAt) return null;
+    const parsed = Number(expiresAt);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  isAuthenticated(): boolean {
+    const expiresAt = this.getExpiresAt();
+    if (expiresAt === null) return false;
     
     // Add small buffer (e.g. 30s) to consider it expired early
-    const isValid = Date.now() < (parseInt(expiresAt, 10) - 30000);
+    const isValid = Date.now() < (expiresAt - 30000);
     return isValid && !!this.getAccessToken();
   }
 
