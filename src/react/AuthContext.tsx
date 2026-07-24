@@ -55,7 +55,7 @@ export const AuthProvider: React.FC<{
         if (!expiresAt) return;
         
         // Use configured threshold or default to 60 seconds
-        const thresholdMs = (config.refreshThreshold || 60) * 1000;
+        const thresholdMs = (config.refreshThreshold ?? 60) * 1000;
         
         if (Date.now() >= expiresAt - thresholdMs) {
           try {
