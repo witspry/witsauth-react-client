@@ -45,6 +45,35 @@ export const AuthProvider: React.FC<{
     checkAuth();
   }, [client]);
 
+  // Auto-refresh token logic
+  useEffect(() => {
+    if (!config.autoRefresh || !authState.isAuthenticated) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const expiresAt = client.getExpiresAt();
+        if (!expiresAt) return;
+        
+        // Use configured threshold or default to 60 seconds
+        const thresholdMs = (config.refreshThreshold || 60) * 1000;
+        
+        if (Date.now() >= expiresAt - thresholdMs) {
+          try {
+            const tokens = await client.refreshAccessToken();
+            setAuthState(prev => ({ ...prev, tokenInfo: tokens }));
+          } catch (err) {
+            // Refresh failed, token is completely expired or revoked
+            logout();
+          }
+        }
+      } catch (err) {
+        console.error('Auto-refresh error:', err);
+      }
+    }, 10000); // Check every 10 seconds
+
+    return () => clearInterval(interval);
+  }, [config.autoRefresh, config.refreshThreshold, authState.isAuthenticated, client]);
+
   const login = async () => {
     setAuthState(prev => ({ ...prev, isLoading: true }));
     await client.startAuthorization();

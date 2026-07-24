@@ -145,6 +145,11 @@ export class AuthClient {
     return this.storage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
   }
 
+  getExpiresAt(): number | null {
+    const expiresAt = this.storage.getItem(STORAGE_KEYS.TOKEN_EXPIRES_AT);
+    return expiresAt ? parseInt(expiresAt, 10) : null;
+  }
+
   isAuthenticated(): boolean {
     const expiresAt = this.storage.getItem(STORAGE_KEYS.TOKEN_EXPIRES_AT);
     if (!expiresAt) return false;
