@@ -46,7 +46,7 @@ export const AuthProvider: React.FC<{
 
   // Auto-refresh token logic
   useEffect(() => {
-    if (!config.autoRefresh || !authState.isAuthenticated) return;
+    if (config.autoRefresh === false || !authState.isAuthenticated) return;
 
     let isRefreshing = false;
 
