@@ -87,11 +87,16 @@ export const AuthProvider: React.FC<{
 
   const logout = async () => {
     setAuthState(prev => ({ ...prev, isLoading: true }));
-    await client.logout();
-    setAuthState({ isAuthenticated: false, isLoading: false });
-    
-    if (config.logoutRedirectRoute && typeof window !== 'undefined') {
-      window.location.assign(config.logoutRedirectRoute);
+    try {
+      await client.logout();
+    } catch (err) {
+      client.log('error', 'Logout error:', err);
+    } finally {
+      setAuthState({ isAuthenticated: false, isLoading: false });
+      
+      if (config.logoutRedirectRoute && typeof window !== 'undefined') {
+        window.location.assign(config.logoutRedirectRoute);
+      }
     }
   };
 
