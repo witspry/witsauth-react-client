@@ -107,7 +107,9 @@ export const AuthProvider: React.FC<{
       setAuthState({ isAuthenticated: true, isLoading: false, tokenInfo: tokens });
       
       if (config.redirectRoute && typeof window !== 'undefined') {
-        window.location.assign(config.redirectRoute);
+        setTimeout(() => {
+          window.location.assign(config.redirectRoute!);
+        }, 0);
       }
       
       return tokens;
