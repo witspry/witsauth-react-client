@@ -8,7 +8,17 @@ export class AuthClient {
 
   constructor(config: OAuth2Config, storage?: TokenStorage) {
     this.config = config;
-    this.storage = storage || new TokenStorage();
+    this.storage = storage || new TokenStorage(config.storage, config.customStorage);
+  }
+
+  log(level: 'error' | 'warn' | 'info' | 'debug', ...args: any[]): void {
+    const levels = { none: 0, error: 1, warn: 2, info: 3, debug: 4 };
+    const currentLevel = levels[this.config.logLevel || 'warn'] || 0;
+    const msgLevel = levels[level] || 0;
+    
+    if (msgLevel > 0 && currentLevel >= msgLevel) {
+      console[level](...args);
+    }
   }
 
   async startAuthorization(): Promise<void> {
@@ -17,7 +27,7 @@ export class AuthClient {
     const state = generateState();
     
     // Nonce is often generated similarly to state
-    const nonce = generateState();
+    const nonce = this.config.nonce || generateState();
 
     this.storage.setItem(STORAGE_KEYS.CODE_VERIFIER, verifier);
     this.storage.setItem(STORAGE_KEYS.STATE, state);
@@ -27,7 +37,7 @@ export class AuthClient {
       client_id: this.config.clientId,
       redirect_uri: this.config.redirectUri,
       response_type: this.config.responseType || 'code',
-      code_challenge_method: 'S256',
+      code_challenge_method: this.config.codeChallengeMethod || 'S256',
       code_challenge: challenge,
       state,
       nonce
@@ -161,8 +171,22 @@ export class AuthClient {
     return isValid && !!this.getAccessToken();
   }
 
-  logout(): void {
+  async logout(): Promise<void> {
+    const token = this.getAccessToken();
+    
     this.storage.clearTokens();
     this.storage.clearTemporary();
+    
+    if (this.config.revokeEndpoint && token) {
+      try {
+        await fetch(this.config.revokeEndpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ token }).toString()
+        });
+      } catch (err) {
+        this.log('error', 'Failed to revoke token during logout', err);
+      }
+    }
   }
 }

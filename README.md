@@ -17,6 +17,9 @@ pnpm add @witsauth/react-client
 - Hooks (`useAuth`) for accessing user session state securely.
 - Built-in Axios interceptors for automatic Bearer token injection.
 - Seamless integration with Witsauth Console.
+- Automatic Token Refresh with configurable thresholds.
+- Configurable Storage (localStorage, sessionStorage, or custom).
+- Flexible Routing Redirects for login and logout.
 
 ## Setup
 
@@ -49,6 +52,32 @@ function App() {
 }
 ```
 
+## Configuration Options
+
+```typescript
+interface OAuth2Config {
+  clientId: string;                    // OAuth2 Client ID
+  authorizationEndpoint: string;       // Authorization endpoint URL
+  tokenEndpoint: string;               // Token endpoint URL
+  redirectUri: string;                 // Redirect URI for callback
+  revokeEndpoint?: string;             // Token revocation endpoint (optional)
+  userInfoEndpoint?: string;           // OIDC UserInfo endpoint (optional)
+  audience?: string;                   // OAuth2 audience parameter (optional)
+  scope?: string;                      // OAuth2 scope parameter
+  responseType?: string;               // Response type (default: 'code')
+  codeChallengeMethod?: 'S256';        // PKCE method (default: 'S256')
+  storage?: 'localStorage' | 'sessionStorage' | 'custom'; // Storage strategy
+  customStorage?: OAuth2Storage;       // Custom storage implementation
+  autoRefresh?: boolean;               // Enable auto token refresh (default: true)
+  refreshThreshold?: number;           // Seconds before expiry to refresh (default: 60)
+  logLevel?: 'none' | 'error' | 'warn' | 'info' | 'debug'; // Logging level
+  nonce?: string;                      // Custom nonce (optional)
+  redirectRoute?: string;              // Route to redirect to after login (optional)
+  logoutRedirectRoute?: string;        // Route to redirect to after logout (optional)
+  oAuthProvider?: 'witsauth' | string; // OAuth provider identifier
+}
+```
+
 ## Usage
 
 Use the `useAuth` hook to access user state and login/logout functions.
@@ -74,6 +103,50 @@ function Profile() {
     </div>
   );
 }
+```
+
+## Advanced Usage
+
+### Custom Storage
+
+You can configure the library to use `sessionStorage` or provide your own custom storage implementation (e.g., for React Native).
+
+```typescript
+import { OAuth2Storage } from '@witsauth/react-client';
+
+class CustomStorage implements OAuth2Storage {
+  getItem(key: string): string | null {
+    // Your custom storage logic
+    return null;
+  }
+  
+  setItem(key: string, value: string): void {
+    // Your custom storage logic
+  }
+  
+  removeItem(key: string): void {
+    // Your custom storage logic
+  }
+}
+
+// Use in configuration
+const config = {
+  // ... other config
+  storage: 'custom',
+  customStorage: new CustomStorage()
+};
+```
+
+### Custom Redirect Routes For Login And Logout
+
+If you want the library to automatically redirect the user after a successful login or logout, you can configure the redirect routes. The library will use `window.location.assign` to perform a full page navigation.
+
+```typescript
+const authConfig = {
+  // ... other config
+  redirectRoute: '/dashboard',
+  logoutRedirectRoute: '/login'
+};
 ```
 
 ## API Interceptors

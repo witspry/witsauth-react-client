@@ -1,11 +1,10 @@
 import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
 import { OAuth2Config, AuthState, TokenInfo } from '../models/types';
 import { AuthClient } from '../core/AuthClient';
-import { TokenStorage } from '../core/storage';
 
 interface AuthContextValue extends AuthState {
   login: () => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   client: AuthClient;
   handleCallback: (code: string, state: string) => Promise<TokenInfo>;
 }
@@ -21,7 +20,7 @@ export const AuthProvider: React.FC<{
     isLoading: true,
   });
 
-  const client = useMemo(() => new AuthClient(config, new TokenStorage()), [config]);
+  const client = useMemo(() => new AuthClient(config), [config]);
 
   useEffect(() => {
     // Initial check on mount
@@ -47,7 +46,7 @@ export const AuthProvider: React.FC<{
 
   // Auto-refresh token logic
   useEffect(() => {
-    if (!config.autoRefresh || !authState.isAuthenticated) return;
+    if (config.autoRefresh === false || !authState.isAuthenticated) return;
 
     let isRefreshing = false;
 
@@ -74,7 +73,7 @@ export const AuthProvider: React.FC<{
           }
         }
       } catch (err) {
-        console.error('Auto-refresh error:', err);
+        client.log('error', 'Auto-refresh error:', err);
       }
     }, 10000); // Check every 10 seconds
 
@@ -86,9 +85,19 @@ export const AuthProvider: React.FC<{
     await client.startAuthorization();
   };
 
-  const logout = () => {
-    client.logout();
-    setAuthState({ isAuthenticated: false, isLoading: false });
+  const logout = async () => {
+    setAuthState(prev => ({ ...prev, isLoading: true }));
+    try {
+      await client.logout();
+    } catch (err) {
+      client.log('error', 'Logout error:', err);
+    } finally {
+      setAuthState({ isAuthenticated: false, isLoading: false });
+      
+      if (config.logoutRedirectRoute && typeof window !== 'undefined') {
+        window.location.assign(config.logoutRedirectRoute);
+      }
+    }
   };
 
   const handleCallback = async (code: string, state: string) => {
@@ -96,6 +105,13 @@ export const AuthProvider: React.FC<{
     try {
       const tokens = await client.exchangeCodeForTokens(code, state);
       setAuthState({ isAuthenticated: true, isLoading: false, tokenInfo: tokens });
+      
+      if (config.redirectRoute && typeof window !== 'undefined') {
+        setTimeout(() => {
+          window.location.assign(config.redirectRoute!);
+        }, 0);
+      }
+      
       return tokens;
     } catch (err) {
       setAuthState({ isAuthenticated: false, isLoading: false, error: err instanceof Error ? err.message : String(err) });

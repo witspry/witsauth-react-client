@@ -1,12 +1,25 @@
-import { STORAGE_KEYS } from '../models/types';
+import { STORAGE_KEYS, OAuth2Storage } from '../models/types';
 
 export class TokenStorage {
   private memoryStorage = new Map<string, string>();
 
-  private getStorage(): Storage {
-    // Only use localStorage if running in browser
-    if (typeof window !== 'undefined' && window.localStorage) {
-      return window.localStorage;
+  constructor(
+    private storageType?: 'localStorage' | 'sessionStorage' | 'custom',
+    private customStorage?: OAuth2Storage
+  ) {}
+
+  private getStorage(): OAuth2Storage {
+    if (this.storageType === 'custom' && this.customStorage) {
+      return this.customStorage;
+    }
+
+    if (typeof window !== 'undefined') {
+      if (this.storageType === 'sessionStorage' && window.sessionStorage) {
+        return window.sessionStorage;
+      }
+      if ((!this.storageType || this.storageType === 'localStorage') && window.localStorage) {
+        return window.localStorage;
+      }
     }
     
     const store = this.memoryStorage;
@@ -16,9 +29,7 @@ export class TokenStorage {
       setItem: (key: string, value: string) => { store.set(key, value); },
       removeItem: (key: string) => { store.delete(key); },
       clear: () => { store.clear(); },
-      get length() { return store.size; },
-      key: (index: number) => Array.from(store.keys())[index] || null,
-    } as Storage;
+    };
   }
 
   setItem(key: string, value: string): void {
