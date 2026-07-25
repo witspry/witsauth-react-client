@@ -174,6 +174,9 @@ export class AuthClient {
   async logout(): Promise<void> {
     const token = this.getAccessToken();
     
+    this.storage.clearTokens();
+    this.storage.clearTemporary();
+    
     if (this.config.revokeEndpoint && token) {
       try {
         await fetch(this.config.revokeEndpoint, {
@@ -185,8 +188,5 @@ export class AuthClient {
         this.log('error', 'Failed to revoke token during logout', err);
       }
     }
-    
-    this.storage.clearTokens();
-    this.storage.clearTemporary();
   }
 }
