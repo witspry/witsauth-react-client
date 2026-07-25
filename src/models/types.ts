@@ -1,14 +1,29 @@
+export interface OAuth2Storage {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem(key: string): void;
+  clear?(): void;
+}
+
 export interface OAuth2Config {
   clientId: string;
   authorizationEndpoint: string;
   tokenEndpoint: string;
   redirectUri: string;
+  revokeEndpoint?: string;
   userInfoEndpoint?: string;
   scope?: string;
   audience?: string;
   responseType?: string;
+  codeChallengeMethod?: 'S256';
+  storage?: 'localStorage' | 'sessionStorage' | 'custom';
+  customStorage?: OAuth2Storage;
   autoRefresh?: boolean;
   refreshThreshold?: number;
+  logLevel?: 'none' | 'error' | 'warn' | 'info' | 'debug';
+  nonce?: string;
+  redirectRoute?: string;
+  logoutRedirectRoute?: string;
   oAuthProvider?: 'witsauth' | string;
 }
 
