@@ -171,7 +171,7 @@ export class AuthClient {
     return isValid && !!this.getAccessToken();
   }
 
-  navigateToAccountManagement(): void {
+  async navigateToAccountManagement(): Promise<void> {
     const refreshToken = this.storage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
     if (!refreshToken) {
       throw new Error('No refresh token available to access account management.');
@@ -195,6 +195,16 @@ export class AuthClient {
       input.value = value;
       form.appendChild(input);
     };
+
+    try {
+      const csrfResponse = await fetch(`${authEndpointBase}/csrf-token`, { credentials: 'include' });
+      const data = await csrfResponse.json();
+      if (data.csrfToken) {
+        addInput('_csrf', data.csrfToken);
+      }
+    } catch (err) {
+      this.log('warn', 'Failed to fetch CSRF token for Account Management navigation', err);
+    }
 
     addInput('refreshToken', refreshToken);
     addInput('clientId', this.config.clientId);

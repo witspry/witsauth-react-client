@@ -5,7 +5,7 @@ import { AuthClient } from '../core/AuthClient';
 interface AuthContextValue extends AuthState {
   login: () => Promise<void>;
   logout: () => Promise<void>;
-  navigateToAccountManagement: () => void;
+  navigateToAccountManagement: () => Promise<void>;
   client: AuthClient;
   handleCallback: (code: string, state: string) => Promise<TokenInfo>;
 }

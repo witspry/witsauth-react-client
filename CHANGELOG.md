@@ -2,6 +2,9 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.1] - 2026-07-29
+- Minor fix - Added csr to account management request
+
 ## [1.3.0] - 2026-07-29
 
 ### Added
