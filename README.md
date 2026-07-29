@@ -105,6 +105,24 @@ function Profile() {
 }
 ```
 
+### Account Management
+
+You can seamlessly redirect the user to the Witsauth Account Management console (to update their profile, change password, etc.) by invoking the `navigateToAccountManagement()` method. This securely POSTs to the IAM backend to preserve the user's active session and safely redirects them back to your application when they are done.
+
+```tsx
+import { useAuth } from '@witsauth/react-client';
+
+function Settings() {
+  const { navigateToAccountManagement } = useAuth();
+
+  return (
+    <button onClick={navigateToAccountManagement}>
+      Manage Account
+    </button>
+  );
+}
+```
+
 ## Advanced Usage
 
 ### Custom Storage

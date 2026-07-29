@@ -171,6 +171,39 @@ export class AuthClient {
     return isValid && !!this.getAccessToken();
   }
 
+  navigateToAccountManagement(): void {
+    const refreshToken = this.storage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
+    if (!refreshToken) {
+      throw new Error('No refresh token available to access account management.');
+    }
+
+    if (typeof window === 'undefined' || !document) {
+      throw new Error('navigateToAccountManagement requires a browser environment.');
+    }
+
+    const form = document.createElement('form');
+    form.method = 'POST';
+    
+    // Derive the account session endpoint from the authorizationEndpoint
+    const authEndpointBase = this.config.authorizationEndpoint.replace(/\/authorize\/?$/, '');
+    form.action = `${authEndpointBase}/account/session`;
+
+    const addInput = (name: string, value: string) => {
+      const input = document.createElement('input');
+      input.type = 'hidden';
+      input.name = name;
+      input.value = value;
+      form.appendChild(input);
+    };
+
+    addInput('refreshToken', refreshToken);
+    addInput('clientId', this.config.clientId);
+    addInput('redirectUri', this.config.redirectUri);
+
+    document.body.appendChild(form);
+    form.submit();
+  }
+
   async logout(): Promise<void> {
     const token = this.getAccessToken();
     

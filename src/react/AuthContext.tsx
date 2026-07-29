@@ -5,6 +5,7 @@ import { AuthClient } from '../core/AuthClient';
 interface AuthContextValue extends AuthState {
   login: () => Promise<void>;
   logout: () => Promise<void>;
+  navigateToAccountManagement: () => void;
   client: AuthClient;
   handleCallback: (code: string, state: string) => Promise<TokenInfo>;
 }
@@ -123,6 +124,7 @@ export const AuthProvider: React.FC<{
     ...authState,
     login,
     logout,
+    navigateToAccountManagement: () => client.navigateToAccountManagement(),
     handleCallback,
     client
   };

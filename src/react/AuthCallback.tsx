@@ -12,7 +12,7 @@ export const AuthCallback: React.FC<AuthCallbackProps> = ({
   onError, 
   loadingComponent = <div>Processing authentication...</div> 
 }) => {
-  const { handleCallback } = useAuth();
+  const { handleCallback, client } = useAuth();
   const hasProcessed = useRef(false);
 
   useEffect(() => {
@@ -41,11 +41,14 @@ export const AuthCallback: React.FC<AuthCallbackProps> = ({
         } catch (err) {
           if (onError) onError(err instanceof Error ? err : new Error(String(err)));
         }
+      } else if (!code) {
+        const config = (client as any).config;
+        window.location.assign(config.redirectRoute || '/');
       }
     };
 
     processCallback();
-  }, [handleCallback, onSuccess, onError]);
+  }, [handleCallback, client, onSuccess, onError]);
 
   return <>{loadingComponent}</>;
 };

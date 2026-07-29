@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-07-29
+
+### Added
+- Added `navigateToAccountManagement()` method to the `useAuth()` hook and `AuthClient` to securely redirect the user to the IAM Account Management console while preserving context.
+
+### Fixed
+- Updated `AuthCallback` to gracefully route to `redirectRoute` when no OAuth code is present (e.g., when returning from the Account Management console).
+
 ## [1.1.0] - 2026-07-24
 
 ### Fixed
