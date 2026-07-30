@@ -75,6 +75,7 @@ interface OAuth2Config {
   redirectRoute?: string;              // Route to redirect to after login (optional)
   logoutRedirectRoute?: string;        // Route to redirect to after logout (optional)
   oAuthProvider?: 'witsauth' | string; // OAuth provider identifier
+  theme?: 'light' | 'dark' | 'system' | (() => 'light' | 'dark' | 'system' | string); // Theme type for hosted pages
 }
 ```
 
