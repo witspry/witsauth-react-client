@@ -43,6 +43,13 @@ export class AuthClient {
       nonce
     });
 
+    if (this.config.theme) {
+      const themeVal = typeof this.config.theme === 'function' ? this.config.theme() : this.config.theme;
+      if (themeVal) {
+        params.append('theme', themeVal);
+      }
+    }
+
     if (this.config.scope) params.append('scope', this.config.scope);
     if (this.config.audience) params.append('audience', this.config.audience);
 
