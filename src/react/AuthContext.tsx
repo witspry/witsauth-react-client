@@ -96,7 +96,10 @@ export const AuthProvider: React.FC<{
       setAuthState({ isAuthenticated: false, isLoading: false });
       
       if (config.logoutRedirectRoute && typeof window !== 'undefined') {
-        window.location.assign(config.logoutRedirectRoute);
+        const url = new URL(config.logoutRedirectRoute, window.location.origin);
+        url.searchParams.set('client_id', config.clientId);
+        url.searchParams.set('redirect_url', config.redirectUri);
+        window.location.assign(url.toString());
       }
     }
   };

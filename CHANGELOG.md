@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.3] - 2026-08-07
+
+### Fixed
+- Fixed missing global names warning in vite build for `react/jsx-runtime` and `react/jsx-dev-runtime`.
+- Appended `client_id` and `redirect_url` as query string parameters when redirecting to `logoutRedirectRoute` during logout.
+
 ## [1.3.2] - 2026-07-29
 - Added theme support
 
