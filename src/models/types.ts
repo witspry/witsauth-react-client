@@ -24,6 +24,7 @@ export interface OAuth2Config {
   nonce?: string;
   redirectRoute?: string;
   logoutRedirectRoute?: string;
+  logoutEndpoint?: string;
   oAuthProvider?: 'witsauth' | string;
   theme?: 'light' | 'dark' | 'system' | (() => 'light' | 'dark' | 'system' | string);
 }

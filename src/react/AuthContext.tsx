@@ -95,10 +95,20 @@ export const AuthProvider: React.FC<{
     } finally {
       setAuthState({ isAuthenticated: false, isLoading: false });
       
-      if (config.logoutRedirectRoute && typeof window !== 'undefined') {
-        const url = new URL(config.logoutRedirectRoute, window.location.origin);
+      if (config.logoutEndpoint && typeof window !== 'undefined') {
+        const url = new URL(config.logoutEndpoint);
         url.searchParams.set('client_id', config.clientId);
-        url.searchParams.set('redirect_uri', config.redirectUri);
+        
+        // Derive absolute redirect URI for post-logout redirect
+        let postLogoutUri = config.redirectUri;
+        if (config.logoutRedirectRoute) {
+            postLogoutUri = new URL(config.logoutRedirectRoute, window.location.origin).toString();
+        }
+        url.searchParams.set('redirect_uri', postLogoutUri);
+        
+        window.location.assign(url.toString());
+      } else if (config.logoutRedirectRoute && typeof window !== 'undefined') {
+        const url = new URL(config.logoutRedirectRoute, window.location.origin);
         window.location.assign(url.toString());
       }
     }
