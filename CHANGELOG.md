@@ -3,6 +3,9 @@
 All notable changes to this project will be documented in this file.
 
 ## [1.3.3] - 2026-08-07
+- Kept post logout redirection clean
+
+## [1.3.3] - 2026-08-07
 
 ### Fixed
 - Fixed missing global names warning in vite build for `react/jsx-runtime` and `react/jsx-dev-runtime`.

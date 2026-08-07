@@ -97,8 +97,6 @@ export const AuthProvider: React.FC<{
       
       if (config.logoutRedirectRoute && typeof window !== 'undefined') {
         const url = new URL(config.logoutRedirectRoute, window.location.origin);
-        url.searchParams.set('client_id', config.clientId);
-        url.searchParams.set('redirect_url', config.redirectUri);
         window.location.assign(url.toString());
       }
     }
