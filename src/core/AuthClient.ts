@@ -5,6 +5,7 @@ import { TokenStorage } from './storage';
 export class AuthClient {
   private config: OAuth2Config;
   private storage: TokenStorage;
+  private refreshPromise: Promise<TokenInfo> | null = null;
 
   constructor(config: OAuth2Config, storage?: TokenStorage) {
     this.config = config;
@@ -109,41 +110,76 @@ export class AuthClient {
   }
 
   async refreshAccessToken(): Promise<TokenInfo> {
-    const refreshToken = this.storage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
-    if (!refreshToken) {
-      throw new Error('No refresh token available');
+    if (this.refreshPromise) {
+      return this.refreshPromise;
     }
 
-    const formData = new URLSearchParams({
-      grant_type: 'refresh_token',
-      client_id: this.config.clientId,
-      refresh_token: refreshToken
+    this.refreshPromise = (async () => {
+      const refreshToken = this.storage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
+      if (!refreshToken) {
+        throw new Error('No refresh token available');
+      }
+
+      const formData = new URLSearchParams({
+        grant_type: 'refresh_token',
+        client_id: this.config.clientId,
+        refresh_token: refreshToken
+      });
+
+      let response: Response;
+      try {
+        response = await fetch(this.config.tokenEndpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: formData.toString()
+        });
+      } catch (networkError) {
+        this.log('error', 'Token refresh network request failed:', networkError);
+        throw networkError;
+      }
+
+      if (!response.ok) {
+        let errorData: any = {};
+        try {
+          errorData = await response.json();
+        } catch {
+          try {
+            errorData = { error: await response.text() };
+          } catch {
+            errorData = {};
+          }
+        }
+
+        this.log('error', 'Token refresh failed with status:', response.status, errorData);
+
+        // Only wipe tokens on client authentication errors (400 Bad Request or 401 Unauthorized)
+        // Keep tokens on 5xx server errors or transient network failures
+        if (response.status === 400 || response.status === 401) {
+          this.storage.clearTokens();
+        }
+
+        const errorMsg = errorData.error_description || errorData.error || response.statusText || 'Failed to refresh token';
+        throw new Error(`Failed to refresh token (${response.status}): ${errorMsg}`);
+      }
+
+      const data = await response.json();
+
+      const tokenInfo: TokenInfo = {
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token || refreshToken, // fallback if provider doesn't rotate refresh tokens
+        tokenType: data.token_type || 'Bearer',
+        expiresAt: Date.now() + (data.expires_in * 1000),
+        scope: data.scope,
+        idToken: data.id_token
+      };
+
+      this.saveTokenInfo(tokenInfo);
+      return tokenInfo;
+    })().finally(() => {
+      this.refreshPromise = null;
     });
 
-    const response = await fetch(this.config.tokenEndpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData.toString()
-    });
-
-    if (!response.ok) {
-      this.storage.clearTokens();
-      throw new Error('Failed to refresh token');
-    }
-
-    const data = await response.json();
-
-    const tokenInfo: TokenInfo = {
-      accessToken: data.access_token,
-      refreshToken: data.refresh_token || refreshToken, // fallback if provider doesn't rotate refresh tokens
-      tokenType: data.token_type || 'Bearer',
-      expiresAt: Date.now() + (data.expires_in * 1000),
-      scope: data.scope,
-      idToken: data.id_token
-    };
-
-    this.saveTokenInfo(tokenInfo);
-    return tokenInfo;
+    return this.refreshPromise;
   }
 
   private saveTokenInfo(info: TokenInfo): void {
