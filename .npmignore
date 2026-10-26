@@ -15,6 +15,7 @@ coverage/
 .github/
 .vscode/
 tsconfig.json
+tsconfig.build.json
 tsconfig.node.json
 vite.config.ts
 vitest.config.ts

@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.8] - 2026-10-26
+
+### Fixed
+- Fixed token revocation in `AuthClient.logout()` to include `client_id` and `token_type_hint`, and revoke both `refresh_token` and `access_token` at `revokeEndpoint`.
+
+### Changed
+- Migrated declaration (`.d.ts`) generation to pure TypeScript 7 (`tsc -p tsconfig.build.json`), removing `vite-plugin-dts` and `@typescript/typescript6`.
+
 ## [1.3.7] - 2026-09-23
 
 ### Fixed
