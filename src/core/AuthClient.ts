@@ -258,20 +258,31 @@ export class AuthClient {
   }
 
   async logout(): Promise<void> {
-    const token = this.getAccessToken();
+    const accessToken = this.getAccessToken();
+    const refreshToken = this.storage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
     
     this.storage.clearTokens();
     this.storage.clearTemporary();
     
-    if (this.config.revokeEndpoint && token) {
-      try {
-        await fetch(this.config.revokeEndpoint, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({ token }).toString()
-        });
-      } catch (err) {
-        this.log('error', 'Failed to revoke token during logout', err);
+    if (this.config.revokeEndpoint) {
+      const tokensToRevoke = [
+        ...(refreshToken ? [{ token: refreshToken, token_type_hint: 'refresh_token' }] : []),
+        ...(accessToken ? [{ token: accessToken, token_type_hint: 'access_token' }] : [])
+      ];
+      for (const item of tokensToRevoke) {
+        try {
+          await fetch(this.config.revokeEndpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+              token: item.token,
+              token_type_hint: item.token_type_hint,
+              client_id: this.config.clientId
+            }).toString()
+          });
+        } catch (err) {
+          this.log('error', 'Failed to revoke token during logout', err);
+        }
       }
     }
   }
