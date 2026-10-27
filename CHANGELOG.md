@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.9] - 2026-10-27
+
+### Added
+- Added RFC 8693 Impersonation Actor (`act`) claim inspection via `getImpersonationActor()` and `isImpersonatedSession()` on `AuthClient` and the `useAuth()` hook (`impersonationActor` and `isImpersonated`).
+- Added `OAuthCallbackError` and `onCallbackError` callback in `OAuth2Config` to surface OAuth callback errors (`error` and `error_description`) directly to the application and `<AuthCallback />`.
+- Added SSR-safe fallback in `WebStorage` and `AuthClient` so server-side rendering in Next.js/Remix does not throw `ReferenceError: window is not defined`.
+
+### Fixed
+- Replaced `atob` base64url JWT decoding with a UTF-8 safe `decodeBase64UrlUtf8` decoder (`TextDecoder`) so international/UTF-8 names and claims decode without corruption.
+- Stopped overwriting `refresh_token` with the string `"undefined"` when the token endpoint returns a non-refreshable token (such as an impersonation token) and skipped background auto-refresh when no refresh token exists.
+- Updated `AuthProvider` to re-synchronize React state (`isAuthenticated`, `user`, `impersonationActor`, `isImpersonated`) whenever token changes occur outside the initial mount lifecycle.
+
 ## [1.3.8] - 2026-10-26
 
 ### Fixed
