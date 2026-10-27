@@ -1,10 +1,14 @@
-import React, { createContext, useContext, useEffect, useState, useMemo } from 'react';
-import { OAuth2Config, AuthState, TokenInfo } from '../models/types';
+import React, { createContext, useContext, useEffect, useState, useMemo, useCallback } from 'react';
+import { AuthorizeOptions, OAuth2Config, AuthState, TokenInfo, UserInfo } from '../models/types';
 import { AuthClient } from '../core/AuthClient';
 
-interface AuthContextValue extends AuthState {
-  login: () => Promise<void>;
+export interface AuthContextValue extends AuthState {
+  accessToken: string | null;
+  idToken: string | null;
+  user: UserInfo | null;
+  login: (options?: AuthorizeOptions) => Promise<void>;
   logout: () => Promise<void>;
+  getToken: () => Promise<string | null>;
   navigateToAccountManagement: () => Promise<void>;
   client: AuthClient;
   handleCallback: (code: string, state: string) => Promise<TokenInfo>;
@@ -81,10 +85,10 @@ export const AuthProvider: React.FC<{
     return () => clearInterval(interval);
   }, [config.autoRefresh, config.refreshThreshold, authState.isAuthenticated, client]);
 
-  const login = async () => {
+  const login = useCallback(async (options?: AuthorizeOptions) => {
     setAuthState(prev => ({ ...prev, isLoading: true }));
-    await client.startAuthorization();
-  };
+    await client.startAuthorization(options);
+  }, [client]);
 
   const logout = async () => {
     setAuthState(prev => ({ ...prev, isLoading: true }));
@@ -133,10 +137,22 @@ export const AuthProvider: React.FC<{
     }
   };
 
-  const value = {
+  const getToken = useCallback(async (): Promise<string | null> => {
+    return client.getToken();
+  }, [client]);
+
+  const accessToken = authState.isAuthenticated ? client.getAccessToken() : null;
+  const idToken = authState.isAuthenticated ? client.getIdToken() : null;
+  const user = authState.isAuthenticated ? client.getUserProfile() : null;
+
+  const value: AuthContextValue = {
     ...authState,
+    accessToken,
+    idToken,
+    user,
     login,
     logout,
+    getToken,
     navigateToAccountManagement: () => client.navigateToAccountManagement(),
     handleCallback,
     client

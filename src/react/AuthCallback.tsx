@@ -21,6 +21,7 @@ export const AuthCallback: React.FC<AuthCallbackProps> = ({
     hasProcessed.current = true;
 
     const processCallback = async () => {
+      if (typeof window === 'undefined' || !window.location) return;
       const searchParams = new URLSearchParams(window.location.search);
       const hashParams = new URLSearchParams(window.location.hash.substring(1));
       

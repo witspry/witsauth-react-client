@@ -14,11 +14,15 @@ export class TokenStorage {
     }
 
     if (typeof window !== 'undefined') {
-      if (this.storageType === 'sessionStorage' && window.sessionStorage) {
-        return window.sessionStorage;
-      }
-      if ((!this.storageType || this.storageType === 'localStorage') && window.localStorage) {
-        return window.localStorage;
+      try {
+        if (this.storageType === 'sessionStorage' && window.sessionStorage) {
+          return window.sessionStorage;
+        }
+        if ((!this.storageType || this.storageType === 'localStorage') && window.localStorage) {
+          return window.localStorage;
+        }
+      } catch {
+        // Fallback to in-memory storage if web storage is blocked or unavailable in SSR
       }
     }
     
@@ -51,6 +55,7 @@ export class TokenStorage {
     storage.removeItem(STORAGE_KEYS.TOKEN_EXPIRES_AT);
     storage.removeItem(STORAGE_KEYS.TOKEN_TYPE);
     storage.removeItem(STORAGE_KEYS.SCOPE);
+    storage.removeItem(STORAGE_KEYS.ID_TOKEN);
   }
 
   clearTemporary(): void {

@@ -1,5 +1,5 @@
-import { OAuth2Config, STORAGE_KEYS, TokenInfo } from '../models/types';
-import { generateCodeVerifier, generateState, createCodeChallenge } from './pkce';
+import { AuthorizeOptions, OAuth2Config, STORAGE_KEYS, TokenInfo, UserInfo } from '../models/types';
+import { generateCodeVerifier, generateState, createCodeChallenge, decodeJwtPayload } from './pkce';
 import { TokenStorage } from './storage';
 
 export class AuthClient {
@@ -22,7 +22,7 @@ export class AuthClient {
     }
   }
 
-  async startAuthorization(): Promise<void> {
+  async startAuthorization(options?: AuthorizeOptions): Promise<void> {
     const verifier = generateCodeVerifier();
     const challenge = await createCodeChallenge(verifier);
     const state = generateState();
@@ -51,8 +51,12 @@ export class AuthClient {
       }
     }
 
-    if (this.config.scope) params.append('scope', this.config.scope);
-    if (this.config.audience) params.append('audience', this.config.audience);
+    const effectiveScope = options?.scope ?? this.config.scope;
+    const effectiveAudience = options?.audience ?? this.config.audience;
+
+    if (effectiveScope) params.append('scope', effectiveScope);
+    if (effectiveAudience) params.append('audience', effectiveAudience);
+    if (options?.prompt) params.append('prompt', options.prompt);
 
     const authUrl = `${this.config.authorizationEndpoint}?${params.toString()}`;
     
@@ -192,10 +196,38 @@ export class AuthClient {
     if (info.scope) {
       this.storage.setItem(STORAGE_KEYS.SCOPE, info.scope);
     }
+    if (info.idToken) {
+      this.storage.setItem(STORAGE_KEYS.ID_TOKEN, info.idToken);
+    }
   }
 
   getAccessToken(): string | null {
     return this.storage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
+  }
+
+  getIdToken(): string | null {
+    return this.storage.getItem(STORAGE_KEYS.ID_TOKEN);
+  }
+
+  getRefreshToken(): string | null {
+    return this.storage.getItem(STORAGE_KEYS.REFRESH_TOKEN);
+  }
+
+  getUserProfile<T extends UserInfo = UserInfo>(): T | null {
+    const token = this.getIdToken() || this.getAccessToken();
+    return decodeJwtPayload<T>(token);
+  }
+
+  async getToken(): Promise<string | null> {
+    if (this.isAuthenticated()) {
+      return this.getAccessToken();
+    }
+    try {
+      const info = await this.refreshAccessToken();
+      return info.accessToken;
+    } catch {
+      return null;
+    }
   }
 
   getExpiresAt(): number | null {
@@ -220,7 +252,7 @@ export class AuthClient {
       throw new Error('No refresh token available to access account management.');
     }
 
-    if (typeof window === 'undefined' || !document) {
+    if (typeof window === 'undefined' || typeof document === 'undefined' || !document) {
       throw new Error('navigateToAccountManagement requires a browser environment.');
     }
 
