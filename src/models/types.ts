@@ -116,6 +116,10 @@ export interface LogoutResult {
 export interface ClearStaleSessionResult {
   readonly cleared: boolean;
   readonly activeSession: boolean;
+  readonly status?: number | undefined;
+  readonly transientOutage?: boolean | undefined;
+  readonly errorCode?: string | undefined;
+  readonly errorMessage?: string | undefined;
   readonly upstreamRevoked?: boolean | undefined;
   readonly locallyRevoked?: boolean | undefined;
 }

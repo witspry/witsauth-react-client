@@ -1,9 +1,9 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { AuthCallback } from './AuthCallback.js';
 import { AuthProvider, useAuth, WitsAuthTestProvider } from './AuthContext.js';
-import { OAuthCallbackError } from '../models/types.js';
+import { type ClearStaleSessionResult, OAuthCallbackError } from '../models/types.js';
 
 function encodeBase64Url(obj: Record<string, unknown>): string {
   return btoa(JSON.stringify(obj)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -210,5 +210,123 @@ describe('AuthProvider, useAuth, AuthCallback & WitsAuthTestProvider', () => {
     expect(screen.getByTestId('auth').textContent).toBe('true');
     expect(screen.getByTestId('user').textContent).toBe('Test User');
     expect(screen.getByTestId('imp').textContent).toBe('admin_1');
+  });
+
+  it('surfaces HTTP 503/502/504 and network transientOutage flags from BFF clearStaleSession without wiping active session (R7-L1)', async () => {
+    let staleScenario: 'outage503' | 'networkError' | 'okCleared' = 'outage503';
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/auth/session') {
+        return new Response(
+          JSON.stringify({
+            data: { isAuthenticated: true, user: { userId: 'adm_1' } },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      if (url === '/api/auth/clear-stale-session') {
+        if (staleScenario === 'outage503') {
+          return new Response(
+            JSON.stringify({
+              error: {
+                code: 'AUTH_UNAVAILABLE',
+                message: 'Upstream identity provider timed out.',
+              },
+            }),
+            { status: 503, headers: { 'content-type': 'application/json' } },
+          );
+        }
+        if (staleScenario === 'networkError') {
+          throw new TypeError('Failed to fetch');
+        }
+        return new Response(
+          JSON.stringify({
+            data: {
+              cleared: true,
+              activeSession: false,
+              upstreamRevoked: true,
+              locallyRevoked: true,
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        );
+      }
+      return new Response('{}', { status: 404 });
+    });
+
+    function ClearStaleHarness(): React.JSX.Element {
+      const { isAuthenticated, clearStaleSession } = useAuth<{ readonly userId?: string }>();
+      const [result, setResult] = useState<ClearStaleSessionResult | null>(null);
+      return (
+        <div>
+          <span data-testid="stale-auth">{String(isAuthenticated)}</span>
+          <span data-testid="stale-result">{result ? JSON.stringify(result) : 'none'}</span>
+          <button
+            onClick={() => {
+              void clearStaleSession().then(setResult);
+            }}
+          >
+            TriggerClearStale
+          </button>
+        </div>
+      );
+    }
+
+    render(
+      <AuthProvider config={{ mode: 'bff', fetchImpl: fetchMock }}>
+        <ClearStaleHarness />
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('stale-auth').textContent).toBe('true');
+    });
+
+    // 1. 503 upstream outage preserves authenticated state and reports transientOutage: true
+    fireEvent.click(screen.getByText('TriggerClearStale'));
+    await waitFor(() => {
+      expect(screen.getByTestId('stale-result').textContent).toContain('"status":503');
+    });
+    expect(JSON.parse(screen.getByTestId('stale-result').textContent ?? '{}')).toEqual({
+      cleared: false,
+      activeSession: false,
+      status: 503,
+      transientOutage: true,
+      errorCode: 'AUTH_UNAVAILABLE',
+      errorMessage: 'Upstream identity provider timed out.',
+    });
+    expect(screen.getByTestId('stale-auth').textContent).toBe('true');
+
+    // 2. Network throw preserves authenticated state and returns status: 0 + transientOutage: true
+    staleScenario = 'networkError';
+    fireEvent.click(screen.getByText('TriggerClearStale'));
+    await waitFor(() => {
+      expect(screen.getByTestId('stale-result').textContent).toContain('"status":0');
+    });
+    expect(JSON.parse(screen.getByTestId('stale-result').textContent ?? '{}')).toEqual({
+      cleared: false,
+      activeSession: false,
+      status: 0,
+      transientOutage: true,
+      errorCode: 'NETWORK_ERROR',
+      errorMessage: 'Failed to fetch',
+    });
+    expect(screen.getByTestId('stale-auth').textContent).toBe('true');
+
+    // 3. 200 cleared resets authenticated state and reports status: 200 + transientOutage: false
+    staleScenario = 'okCleared';
+    fireEvent.click(screen.getByText('TriggerClearStale'));
+    await waitFor(() => {
+      expect(screen.getByTestId('stale-auth').textContent).toBe('false');
+    });
+    expect(JSON.parse(screen.getByTestId('stale-result').textContent ?? '{}')).toEqual({
+      cleared: true,
+      activeSession: false,
+      status: 200,
+      transientOutage: false,
+      upstreamRevoked: true,
+      locallyRevoked: true,
+    });
   });
 });

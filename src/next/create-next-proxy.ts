@@ -11,6 +11,7 @@ import {
   serializeBffSetCookie,
   singleFlightRefreshOidcTokens,
 } from './refresh-grace.js';
+import type { ValidateEstablishedSessionResult } from './create-next-auth-handler.js';
 
 export interface NextProxyRefreshedTokens {
   readonly accessToken: string;
@@ -33,10 +34,20 @@ export interface WitsAuthNextProxyConfig<
     refreshToken: string,
     request: CookieReadableRequest,
   ) => Promise<NextProxyRefreshedTokens>;
-  readonly validateRefreshedSession?: (
-    tokens: NextProxyRefreshedTokens,
-    request: CookieReadableRequest,
-  ) => Promise<boolean>;
+  readonly validateRefreshedSession?:
+    | ((
+        tokens: NextProxyRefreshedTokens,
+        request: CookieReadableRequest,
+        meta: { readonly incomingRefreshToken: string },
+      ) => Promise<boolean | ValidateEstablishedSessionResult>)
+    | undefined;
+  readonly revokeSession?:
+    | ((input: {
+        readonly accessToken?: string | undefined;
+        readonly refreshToken?: string | undefined;
+        readonly request: CookieReadableRequest;
+      }) => Promise<unknown>)
+    | undefined;
   readonly next: (forwardedHeaders?: Headers) => TResponse;
   readonly redirect: (url: URL, status: 302 | 303 | 307) => TResponse;
   readonly defaultRefreshMaxAgeSeconds?: number | undefined;
@@ -156,9 +167,27 @@ export function createWitsAuthNextProxy<TResponse extends { readonly headers: He
         );
 
         if (config.validateRefreshedSession) {
-          const allowed = await config.validateRefreshedSession(refreshed, request);
+          const validation = await config.validateRefreshedSession(refreshed, request, {
+            incomingRefreshToken: refreshToken,
+          });
+          const allowed = typeof validation === 'boolean' ? validation : validation.ok;
           if (!allowed) {
-            const deniedRes = buildLoginRedirect('forbidden_staff_role');
+            if (config.revokeSession) {
+              try {
+                await config.revokeSession({
+                  accessToken: refreshed.accessToken,
+                  refreshToken: refreshed.refreshToken ?? refreshToken,
+                  request,
+                });
+              } catch {
+                // Best-effort revocation before clearing cookies and redirecting to login.
+              }
+            }
+            const deniedErrorCode =
+              typeof validation === 'object' && !validation.ok && validation.errorCode
+                ? validation.errorCode
+                : 'forbidden_staff_role';
+            const deniedRes = buildLoginRedirect(deniedErrorCode);
             appendClearedCookies(deniedRes.headers);
             return deniedRes;
           }

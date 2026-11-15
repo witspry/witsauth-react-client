@@ -39,7 +39,7 @@ export interface CreateBffProxyConfig {
   readonly isSecureCookie: () => boolean;
   readonly isDevelopment?: (() => boolean) | undefined;
   readonly getCookieSecret?: (() => string) | undefined;
-  readonly trustedClientIpHeader?: string | undefined;
+  readonly trustedClientIpHeader?: string | (() => string | undefined) | undefined;
   readonly accessCookieName: string;
   readonly refreshCookieName: string;
   readonly impersonationCookieName?: string | undefined;
@@ -253,11 +253,17 @@ export function createBffProxy(
     let apiOrigin: string;
     let secureCookie: boolean;
     let cookieSecret: string | undefined;
+    let trustedIpHeader: string | undefined;
     try {
       publicOrigin = config.getPublicOrigin(urlParts.origin);
       apiOrigin = config.getApiOrigin();
       secureCookie = config.isSecureCookie();
       cookieSecret = config.getCookieSecret ? config.getCookieSecret() : undefined;
+      const rawTrustedIpHeader =
+        typeof config.trustedClientIpHeader === 'function'
+          ? config.trustedClientIpHeader()
+          : config.trustedClientIpHeader;
+      trustedIpHeader = rawTrustedIpHeader?.trim() || undefined;
     } catch {
       return jsonErrorResponse(
         500,
@@ -326,8 +332,8 @@ export function createBffProxy(
     }
 
     // Never trust raw client-supplied X-Forwarded-For / X-Real-IP headers.
-    if (config.trustedClientIpHeader) {
-      const trustedRaw = request.headers.get(config.trustedClientIpHeader)?.trim();
+    if (trustedIpHeader) {
+      const trustedRaw = request.headers.get(trustedIpHeader)?.trim();
       const firstIp = trustedRaw?.split(',')[0]?.trim();
       if (firstIp) {
         headers.set('x-forwarded-for', firstIp);
@@ -339,7 +345,9 @@ export function createBffProxy(
       headers.set('user-agent', userAgent);
     }
 
+    let hasGuestSession = false;
     if (config.guestSessionCookieName) {
+      hasGuestSession = true;
       const existingCookie = readRequestCookie(request, config.guestSessionCookieName);
       const verifiedGuestSid =
         cookieSecret && existingCookie
@@ -485,7 +493,7 @@ export function createBffProxy(
         }
       }
 
-      const hadAuthContext = Boolean(impToken || accessToken || refreshToken);
+      const hadAuthContext = Boolean(impToken || accessToken || refreshToken || hasGuestSession);
       if (hadAuthContext || pendingSetCookies.length > 0) {
         responseHeaders.set('cache-control', 'private, no-store');
         responseHeaders.set('vary', 'Cookie, Origin, Sec-Fetch-Site');

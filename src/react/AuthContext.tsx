@@ -281,12 +281,12 @@ const SpaAuthProvider = <TUser = UserInfo, TProfile = unknown>({
 
   const clearStaleSession = useCallback(async (): Promise<ClearStaleSessionResult> => {
     if (client.isAuthenticated()) {
-      return { cleared: false, activeSession: true };
+      return { cleared: false, activeSession: true, status: 200, transientOutage: false };
     }
     if (client.getRefreshToken()) {
       const refreshed = await refreshSession();
       if (refreshed) {
-        return { cleared: false, activeSession: true };
+        return { cleared: false, activeSession: true, status: 200, transientOutage: false };
       }
     }
     await client.logout();
@@ -294,6 +294,8 @@ const SpaAuthProvider = <TUser = UserInfo, TProfile = unknown>({
     return {
       cleared: true,
       activeSession: false,
+      status: 200,
+      transientOutage: false,
       upstreamRevoked: true,
       locallyRevoked: true,
     };
@@ -639,13 +641,47 @@ const BffAuthProvider = <TUser = UserInfo, TProfile = unknown>({
   }, [bffBasePath, invokeFetch, syncBffSession]);
 
   const clearStaleSession = useCallback(async (): Promise<ClearStaleSessionResult> => {
-    const response = await invokeFetch(`${bffBasePath}/clear-stale-session`, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { Accept: 'application/json' },
-    });
+    let response: Response;
+    try {
+      response = await invokeFetch(`${bffBasePath}/clear-stale-session`, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { Accept: 'application/json' },
+      });
+    } catch (err) {
+      return {
+        cleared: false,
+        activeSession: false,
+        status: 0,
+        transientOutage: true,
+        errorCode: 'NETWORK_ERROR',
+        errorMessage:
+          err instanceof Error && err.message.length > 0
+            ? err.message
+            : 'Authentication service is temporarily unavailable.',
+      };
+    }
     if (!response.ok) {
-      return { cleared: false, activeSession: false };
+      const errJson = (await response.json().catch(() => ({}))) as {
+        readonly error?: { readonly code?: unknown; readonly message?: unknown };
+        readonly code?: unknown;
+        readonly message?: unknown;
+      };
+      const rawCode = errJson.error?.code ?? errJson.code;
+      const rawMessage = errJson.error?.message ?? errJson.message;
+      const errorCode =
+        typeof rawCode === 'string' && rawCode.length > 0 ? rawCode : undefined;
+      const errorMessage =
+        typeof rawMessage === 'string' && rawMessage.length > 0 ? rawMessage : undefined;
+      return {
+        cleared: false,
+        activeSession: false,
+        status: response.status,
+        transientOutage:
+          response.status === 502 || response.status === 503 || response.status === 504,
+        ...(errorCode !== undefined ? { errorCode } : {}),
+        ...(errorMessage !== undefined ? { errorMessage } : {}),
+      };
     }
     const json = (await response.json().catch(() => ({}))) as {
       readonly data?: {
@@ -672,6 +708,8 @@ const BffAuthProvider = <TUser = UserInfo, TProfile = unknown>({
     return {
       cleared,
       activeSession,
+      status: response.status,
+      transientOutage: false,
       ...(typeof data?.upstreamRevoked === 'boolean'
         ? { upstreamRevoked: data.upstreamRevoked }
         : {}),

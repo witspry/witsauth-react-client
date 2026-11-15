@@ -803,6 +803,19 @@ export function createWitsAuthNextHandler(config: WitsAuthNextHandlerConfig): {
           request,
         });
         if (!me.ok) {
+          try {
+            await runRevokeSession(
+              impToken
+                ? { accessToken: activeToken, request }
+                : {
+                    accessToken: activeToken,
+                    ...(refreshToken ? { refreshToken } : {}),
+                    request,
+                  },
+            );
+          } catch {
+            // Best-effort upstream revocation when active session is rejected.
+          }
           const cookiesToClear = impToken && config.cookies.impersonationCookieName
             ? [deleteCookieString(config.cookies.impersonationCookieName, secureCookie)]
             : clearSessionCookieHeaders(secureCookie);
@@ -837,6 +850,15 @@ export function createWitsAuthNextHandler(config: WitsAuthNextHandlerConfig): {
           request,
         });
         if (!me.ok) {
+          try {
+            await runRevokeSession({
+              accessToken: refreshed.accessToken,
+              refreshToken: refreshed.refreshToken ?? refreshToken,
+              request,
+            });
+          } catch {
+            // Best-effort upstream revocation when refreshed session is rejected.
+          }
           return jsonResponse(
             200,
             { data: unauthenticatedData },
@@ -935,7 +957,7 @@ export function createWitsAuthNextHandler(config: WitsAuthNextHandlerConfig): {
         try {
           const outcome = await runRevokeSession({
             accessToken: refreshed.accessToken,
-            refreshToken: refreshed.refreshToken,
+            refreshToken: refreshed.refreshToken ?? refreshToken,
             request,
           });
           upstreamRevoked = outcome.upstreamRevoked;
@@ -1022,7 +1044,7 @@ export function createWitsAuthNextHandler(config: WitsAuthNextHandlerConfig): {
         try {
           await runRevokeSession({
             accessToken: refreshed.accessToken,
-            refreshToken: refreshed.refreshToken,
+            refreshToken: refreshed.refreshToken ?? refreshToken,
             request,
           });
         } catch {
@@ -1480,7 +1502,22 @@ export function createWitsAuthNextHandler(config: WitsAuthNextHandlerConfig): {
         if (!csrf.ok) {
           return jsonErrorResponse(csrf.status, csrf.code, csrf.message);
         }
-        return customAction.handler(request, { publicOrigin, secureCookie });
+        try {
+          return await customAction.handler(request, { publicOrigin, secureCookie });
+        } catch (err) {
+          const info = extractUpstreamErrorInfo(err);
+          const safeStatus =
+            typeof info.statusCode === 'number' &&
+            info.statusCode >= 400 &&
+            info.statusCode <= 599
+              ? info.statusCode
+              : 502;
+          return jsonErrorResponse(
+            safeStatus,
+            info.errorCode ?? 'CUSTOM_AUTH_ACTION_FAILED',
+            info.message ?? 'Authentication action failed.',
+          );
+        }
       }
 
       const isConsume = config.enableImpersonation === true && routeKey === 'impersonate/consume';

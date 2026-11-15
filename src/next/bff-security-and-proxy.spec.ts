@@ -571,4 +571,280 @@ describe('@witsauth/react-client/next BFF kernel, handlers & proxies', () => {
     });
     expect(cancelSpy).toHaveBeenCalledTimes(1);
   });
+
+  it('sets private no-store + Vary on returning signed guest sessions (R7-M4) and evaluates lazy trustedClientIpHeader per request (R7-L2)', async () => {
+    let dynamicIpHeader: string | undefined = 'x-real-ip';
+    let shouldThrowIpHeader = false;
+    const forwardedIpValues: Array<string | null> = [];
+
+    const proxy = createBffProxy({
+      appLabel: 'Storefront',
+      getApiOrigin: () => 'https://api.internal.example',
+      getPublicOrigin: () => PUBLIC_ORIGIN,
+      isSecureCookie: () => true,
+      getCookieSecret: () => SECRET,
+      trustedClientIpHeader: () => {
+        if (shouldThrowIpHeader) {
+          throw new Error('Missing IP header config');
+        }
+        return dynamicIpHeader;
+      },
+      accessCookieName: 'sf_acc',
+      refreshCookieName: 'sf_ref',
+      guestSessionCookieName: 'se_guest_sid',
+      allowedFirstSegments: new Set(['bookings']),
+      fetchImpl: async (_input, init) => {
+        const hdrs = new Headers(init?.headers);
+        forwardedIpValues.push(hdrs.get('x-forwarded-for'));
+        return new Response(JSON.stringify({ data: { guestOk: true } }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      },
+    });
+
+    const signedGuestCookie = await signGuestSessionId('se_guest_abcdefgh12345678', SECRET);
+
+    const returningGuestRes = await proxy(
+      makeRequest(`${PUBLIC_ORIGIN}/api/v1/bookings/hold`, {
+        cookies: { se_guest_sid: signedGuestCookie },
+        headers: {
+          'x-real-ip': '203.0.113.10',
+          'cf-connecting-ip': '198.51.100.25',
+        },
+      }),
+      { params: Promise.resolve({ path: ['bookings', 'hold'] }) },
+    );
+    expect(returningGuestRes.status).toBe(200);
+    expect(returningGuestRes.headers.getSetCookie()).toHaveLength(0);
+    expect(returningGuestRes.headers.get('cache-control')).toBe('private, no-store');
+    expect(returningGuestRes.headers.get('vary')).toBe('Cookie, Origin, Sec-Fetch-Site');
+    expect(forwardedIpValues[0]).toBe('203.0.113.10');
+
+    // Lazy header change applies on subsequent request without recreating proxy
+    dynamicIpHeader = 'cf-connecting-ip';
+    const rotatedHeaderRes = await proxy(
+      makeRequest(`${PUBLIC_ORIGIN}/api/v1/bookings/hold`, {
+        cookies: { se_guest_sid: signedGuestCookie },
+        headers: {
+          'x-real-ip': '203.0.113.10',
+          'cf-connecting-ip': '198.51.100.25',
+        },
+      }),
+      { params: Promise.resolve({ path: ['bookings', 'hold'] }) },
+    );
+    expect(rotatedHeaderRes.status).toBe(200);
+    expect(forwardedIpValues[1]).toBe('198.51.100.25');
+
+    // Throwing lazy getter fails closed with 500 BFF_CONFIG_ERROR
+    shouldThrowIpHeader = true;
+    const configErrRes = await proxy(makeRequest(`${PUBLIC_ORIGIN}/api/v1/bookings/hold`), {
+      params: Promise.resolve({ path: ['bookings', 'hold'] }),
+    });
+    expect(configErrRes.status).toBe(500);
+    expect(await configErrRes.json()).toMatchObject({
+      error: { code: 'BFF_CONFIG_ERROR' },
+    });
+  });
+
+  it('revokes upstream tokens on rejected GET /session & unrotated refresh (R7-M5) and guards customPostActions statusCode=0 -> 502 (R7-L2)', async () => {
+    const revokeCalls: Array<{
+      readonly accessToken?: string | undefined;
+      readonly refreshToken?: string | undefined;
+    }> = [];
+
+    const handler = createWitsAuthNextHandler({
+      appScope: 'admin',
+      cookies: {
+        accessCookieName: 'adm_acc',
+        refreshCookieName: 'adm_ref',
+        pkceCookieName: 'adm_pkce',
+      },
+      getPublicOrigin: () => PUBLIC_ORIGIN,
+      getCookieSecret: () => SECRET,
+      getClientId: () => 'satvikease-admin',
+      getAuthorizeUrl: () => 'https://auth.example/oauth/authorize',
+      isSecureCookie: () => true,
+      enableRefreshSessionGet: true,
+      refreshTokens: async () => ({
+        accessToken: 'new_acc_unrotated',
+        expiresInSeconds: 600,
+      }),
+      validateEstablishedSession: async () => ({
+        ok: false,
+        errorCode: 'two_factor_required',
+      }),
+      fetchSession: async () => ({
+        ok: false,
+        errorCode: 'TWO_FACTOR_REQUIRED',
+        errorMessage: '2FA required.',
+      }),
+      revokeSession: async ({ accessToken, refreshToken }) => {
+        revokeCalls.push({ accessToken, refreshToken });
+        return { upstreamRevoked: true, locallyRevoked: true };
+      },
+      customPostActions: {
+        'dev-switch': {
+          hasBody: true,
+          requireJsonContentType: true,
+          handler: async () => {
+            throw Object.assign(new Error('Upstream reset'), {
+              statusCode: 0,
+              errorCode: 'UPSTREAM_DOWN',
+            });
+          },
+        },
+      },
+    });
+
+    // 1. Active token rejected by fetchSession triggers best-effort revokeSession before clearing cookies
+    const activeRejected = await handler.GET(
+      makeRequest(`${PUBLIC_ORIGIN}/api/auth/session`, {
+        cookies: { adm_acc: 'bad_acc', adm_ref: 'cur_ref_1' },
+      }),
+      { params: Promise.resolve({ action: ['session'] }) },
+    );
+    expect(activeRejected.status).toBe(200);
+    expect(await activeRejected.json()).toEqual({ data: { isAuthenticated: false, user: null } });
+    expect(revokeCalls[0]).toEqual({ accessToken: 'bad_acc', refreshToken: 'cur_ref_1' });
+
+    // 2. Inline refresh on GET /session rejected by fetchSession falls back to incoming refreshToken
+    const inlineRejected = await handler.GET(
+      makeRequest(`${PUBLIC_ORIGIN}/api/auth/session`, {
+        cookies: { adm_ref: 'cur_ref_2' },
+      }),
+      { params: Promise.resolve({ action: ['session'] }) },
+    );
+    expect(inlineRejected.status).toBe(200);
+    expect(revokeCalls[1]).toEqual({
+      accessToken: 'new_acc_unrotated',
+      refreshToken: 'cur_ref_2',
+    });
+
+    // 3. GET /refresh-session rejected falls back to incoming refreshToken when refreshed.refreshToken omitted
+    const refreshGetRejected = await handler.GET(
+      makeRequest(`${PUBLIC_ORIGIN}/api/auth/refresh-session?returnTo=%2Fusers`, {
+        headers: {
+          'sec-fetch-site': 'same-origin',
+          'sec-fetch-mode': 'navigate',
+          'sec-fetch-dest': 'document',
+        },
+        cookies: { adm_ref: 'cur_ref_3' },
+      }),
+      { params: Promise.resolve({ action: ['refresh-session'] }) },
+    );
+    expect(refreshGetRejected.status).toBe(302);
+    expect(revokeCalls[2]).toEqual({
+      accessToken: 'new_acc_unrotated',
+      refreshToken: 'cur_ref_3',
+    });
+
+    // 4. POST /refresh rejected falls back to incoming refreshToken when refreshed.refreshToken omitted
+    const postRefreshRejected = await handler.POST(
+      makeRequest(`${PUBLIC_ORIGIN}/api/auth/refresh`, {
+        method: 'POST',
+        headers: { origin: PUBLIC_ORIGIN },
+        cookies: { adm_ref: 'cur_ref_4' },
+      }),
+      { params: Promise.resolve({ action: ['refresh'] }) },
+    );
+    expect(postRefreshRejected.status).toBe(403);
+    expect(revokeCalls[3]).toEqual({
+      accessToken: 'new_acc_unrotated',
+      refreshToken: 'cur_ref_4',
+    });
+
+    // 5. customPostActions throwing statusCode=0 maps cleanly to HTTP 502 instead of RangeError
+    const customErrRes = await handler.POST(
+      makeRequest(`${PUBLIC_ORIGIN}/api/auth/dev-switch`, {
+        method: 'POST',
+        headers: { origin: PUBLIC_ORIGIN, 'content-type': 'application/json' },
+        body: JSON.stringify({ role: 'ops_admin' }),
+      }),
+      { params: Promise.resolve({ action: ['dev-switch'] }) },
+    );
+    expect(customErrRes.status).toBe(502);
+    expect(await customErrRes.json()).toEqual({
+      error: { code: 'UPSTREAM_DOWN', message: 'Upstream reset' },
+    });
+  });
+
+  it('preserves ValidateEstablishedSessionResult errorCode and invokes revokeSession in createWitsAuthNextProxy (R7-M5)', async () => {
+    const revokeSpy = vi.fn(async () => ({ upstreamRevoked: true, locallyRevoked: true }));
+    let returnBooleanFalse = false;
+
+    const proxy = createWitsAuthNextProxy({
+      appScope: 'admin',
+      loginPath: '/login',
+      defaultReturnTo: '/dashboard',
+      accessCookieName: 'adm_acc',
+      refreshCookieName: 'adm_ref',
+      isSecureCookie: () => true,
+      refreshTokens: async () => ({
+        accessToken: 'proxy_acc_1',
+        expiresInSeconds: 600,
+      }),
+      validateRefreshedSession: async (_tokens, _req, meta) => {
+        expect(meta.incomingRefreshToken).toBe(returnBooleanFalse ? 'proxy_ref_2' : 'proxy_ref_1');
+        if (returnBooleanFalse) {
+          return false;
+        }
+        return { ok: false, errorCode: 'two_factor_required' };
+      },
+      revokeSession: revokeSpy,
+      next: (forwardedHeaders) =>
+        new Response('next', {
+          status: 200,
+          headers: forwardedHeaders
+            ? { 'x-forwarded-cookie': forwardedHeaders.get('cookie') ?? '' }
+            : {},
+        }),
+      redirect: (url, status) =>
+        new Response(null, { status, headers: { location: url.toString() } }),
+    });
+
+    const mfaRes = await proxy(
+      makeRequest(`${PUBLIC_ORIGIN}/dashboard`, {
+        headers: {
+          'sec-fetch-site': 'same-origin',
+          'sec-fetch-mode': 'navigate',
+          'sec-fetch-dest': 'document',
+        },
+        cookies: { adm_ref: 'proxy_ref_1' },
+      }),
+    );
+    expect(mfaRes.status).toBe(307);
+    expect(mfaRes.headers.get('location')).toBe(
+      `${PUBLIC_ORIGIN}/login?returnTo=%2Fdashboard&authError=two_factor_required`,
+    );
+    expect(revokeSpy).toHaveBeenCalledTimes(1);
+    expect(revokeSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accessToken: 'proxy_acc_1',
+        refreshToken: 'proxy_ref_1',
+      }),
+    );
+    expect(
+      mfaRes.headers.getSetCookie().some((c) => c.startsWith('adm_acc=;') && c.includes('Max-Age=0')),
+    ).toBe(true);
+    expect(
+      mfaRes.headers.getSetCookie().some((c) => c.startsWith('adm_ref=;') && c.includes('Max-Age=0')),
+    ).toBe(true);
+
+    returnBooleanFalse = true;
+    const roleRes = await proxy(
+      makeRequest(`${PUBLIC_ORIGIN}/dashboard`, {
+        headers: {
+          'sec-fetch-site': 'same-origin',
+          'sec-fetch-mode': 'navigate',
+          'sec-fetch-dest': 'document',
+        },
+        cookies: { adm_ref: 'proxy_ref_2' },
+      }),
+    );
+    expect(roleRes.status).toBe(307);
+    expect(roleRes.headers.get('location')).toBe(
+      `${PUBLIC_ORIGIN}/login?returnTo=%2Fdashboard&authError=forbidden_staff_role`,
+    );
+  });
 });
