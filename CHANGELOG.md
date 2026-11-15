@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.0] - 2026-11-15
+
+### Added
+- **Next.js App Router BFF Entry (`@witsauth/react-client/next`):** Added Web-Standards server handlers (`createWitsAuthNextHandler`), Next.js `proxy.ts` / middleware helper (`createWitsAuthNextProxy`), and hardened `/api/v1/[...path]` API proxy (`createBffProxy` / `createWitsAuthBffApiProxy`) using exclusively Web Crypto (`crypto.subtle`) and standard `Request`/`Response` APIs.
+- **BFF & CSRF Security Kernel:** Added HMAC-SHA256 signed PKCE & guest session cookies, exact tuple-origin validation (`isSameTupleOrigin` with `Origin` API + `URL` fallback), strict open-redirect sanitizer (`sanitizeRelativeReturnTo`), same-origin CSRF checks (`assertSameOriginMutation`), Fetch Metadata navigation guards (`assertBrowserNavigationFetchMetadata` requiring explicit `Sec-Fetch-Mode: navigate` & `Sec-Fetch-Dest: document` on `cross-site` navigations), and single-flight refresh deduplication (`singleFlightRefreshOidcTokens` with 15s settled grace cache).
+- **Safe Session Recovery & Clearing:** Added live-session-safe `POST /clear-stale-session`, side-effect-free `GET /clear-session`, strict `GET /refresh-session` bounce for cross-site/same-site requests, `500 BFF_CONFIG_ERROR` config error guards, `502 UPSTREAM_AUTH_UNAVAILABLE` network/timeout mapping on impersonation consumption, and `Clear-Site-Data: "cookies", "storage", "cache"` on logout.
+- **Unified `<AuthProvider mode="bff" | "spa">` & `<ImpersonationCallback />`:** Added BFF session mode in `AuthProvider` / `useAuth()` (`profile`, `impersonation`, `exitImpersonation()`, `refreshSession()`, `clearStaleSession()`), `<WitsAuthTestProvider />` for downstream testing, and StrictMode-safe `<ImpersonationCallback />` for URL fragment `#code=` capture and redemption.
+
+### Fixed
+- Implemented missing `getImpersonationActor()` (preferring `access_token` `act` claims before falling back to `id_token`), `isImpersonatedSession()`, and `OAuthCallbackError` / `onCallbackError` propagation in `AuthClient` and `<AuthCallback />`.
+- Enforced OIDC ID token `nonce` verification in `AuthClient.exchangeCodeForTokens()`.
+- Guarded `AuthClient.getToken()` and `<AuthProvider>` auto-refresh against non-refreshable tokens (e.g., short-lived impersonation sessions).
+
+### Changed
+- Enabled dual ESM (`.js`) + CommonJS (`.cjs`) exports for both `.` and `./next`, injected `'use client';` strictly on root client entry bundles, enabled `exactOptionalPropertyTypes` and `noUncheckedIndexedAccess` in TypeScript, marked `axios` and `next` as optional peer dependencies, and upgraded React 19 dev/test dependencies to `19.3.x`.
+
 ## [1.3.9] - 2026-10-27
 
 ### Added

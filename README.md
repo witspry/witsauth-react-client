@@ -1,29 +1,88 @@
 # @witsauth/react-client
 
-Official React client library for integrating Witsauth Single Sign-On (SSO) authentication or similar services into your React applications.
+Official React and Next.js BFF client library for integrating WitsAuth Single Sign-On (SSO) authentication into React SPAs and Next.js App Router applications.
 
 ## Installation
 
 ```bash
 npm install @witsauth/react-client
 # or
-yarn add @witsauth/react-client
-# or
 pnpm add @witsauth/react-client
 ```
 
+> `axios` and `next` are **optional** peer dependencies (`peerDependenciesMeta`). Pure Next.js `fetch` apps do not need `axios`, and pure React SPAs do not need `next`.
+
 ## Features
-- Complete OAuth2 Authorization Code Flow with PKCE.
-- Hooks (`useAuth`) for accessing user session state securely.
-- Built-in Axios interceptors for automatic Bearer token injection.
-- Seamless integration with Witsauth Console.
-- Automatic Token Refresh with configurable thresholds.
-- Configurable Storage (localStorage, sessionStorage, or custom).
-- Flexible Routing Redirects for login and logout.
+- **Two First-Class Modes:**
+  - **Next.js BFF (`mode: 'bff'` + `@witsauth/react-client/next`):** Zero browser token exposure (`httpOnly` cookies), Web Crypto HMAC-signed PKCE state cookies, 15s single-flight OIDC refresh grace cache, Fetch Metadata & Origin CSRF defenses, streaming request/response proxy caps, and RFC 8693 impersonation handoff support.
+  - **React SPA (`mode: 'spa'`, default):** Complete OAuth2 Authorization Code Flow with `S256` PKCE, ID token `nonce` validation, automatic refresh with concurrent deduplication, `useAuth()`, `<AuthCallback />`, and optional `setupAxiosInterceptors` (`axios`).
+- **Dual ESM + CJS Exports:** Works seamlessly with Next.js 15/16 Turbopack, Vite, Node 24 ESM, and Jest CommonJS test runners (`sideEffects: false`).
 
-## Setup
+---
 
-Wrap your application with the `AuthProvider` and pass your configuration.
+## Usage: Next.js App Router BFF (`1.4.0`)
+
+### 1. Client Provider (`'use client'`)
+```tsx
+import { AuthProvider, useAuth } from '@witsauth/react-client';
+
+export function Providers({ children }: { children: React.ReactNode }) {
+  return (
+    <AuthProvider config={{ mode: 'bff', bffBasePath: '/api/auth', defaultReturnTo: '/' }}>
+      {children}
+    </AuthProvider>
+  );
+}
+```
+
+### 2. Auth Route Handler (`app/api/auth/[...action]/route.ts`)
+```ts
+import { createWitsAuthNextHandler } from '@witsauth/react-client/next';
+
+export const { GET, POST } = createWitsAuthNextHandler({
+  appScope: 'web',
+  cookies: {
+    accessCookieName: 'witsauth_access',
+    refreshCookieName: 'witsauth_refresh',
+    pkceCookieName: 'witsauth_pkce',
+  },
+  getPublicOrigin: (reqOrigin) => process.env.PUBLIC_ORIGIN || reqOrigin,
+  getCookieSecret: () => process.env.BFF_COOKIE_SECRET!,
+  getClientId: () => process.env.OIDC_CLIENT_ID!,
+  getAuthorizeUrl: () => `${process.env.OIDC_ISSUER}/auth/authorize`,
+  getTokenEndpoint: () => `${process.env.OIDC_ISSUER}/oauth/token`,
+  getRevokeEndpoint: () => `${process.env.OIDC_ISSUER}/oauth/revoke`,
+  getUserInfoEndpoint: () => `${process.env.OIDC_ISSUER}/oauth/userinfo`,
+  isSecureCookie: () => process.env.NODE_ENV === 'production',
+  enableRefreshSessionGet: true,
+  enableClearSessionGet: true,
+});
+```
+
+### 3. Next.js Middleware / `proxy.ts`
+```ts
+import { NextResponse } from 'next/server';
+import { createWitsAuthNextProxy } from '@witsauth/react-client/next';
+
+export const proxy = createWitsAuthNextProxy({
+  appScope: 'web',
+  loginPath: '/login',
+  defaultReturnTo: '/dashboard',
+  accessCookieName: 'witsauth_access',
+  refreshCookieName: 'witsauth_refresh',
+  isSecureCookie: () => process.env.NODE_ENV === 'production',
+  refreshTokens: async (refreshToken) => {
+    // Rotate refresh token against WitsAuth or host API
+    throw new Error('Provide refreshTokens implementation');
+  },
+  next: (headers) => NextResponse.next(headers ? { request: { headers } } : undefined),
+  redirect: (url, status) => NextResponse.redirect(url, status),
+});
+```
+
+---
+
+## Usage: React SPA (`mode: 'spa'`)
 
 ```tsx
 import { AuthProvider, AuthCallback } from '@witsauth/react-client';
@@ -34,7 +93,7 @@ const authConfig = {
   authorizationEndpoint: 'https://api.yourdomain.com/auth/authorize',
   tokenEndpoint: 'https://api.yourdomain.com/auth/oauth/token',
   redirectUri: window.location.origin + '/auth/callback',
-  scope: 'openid profile email'
+  scope: 'openid profile email',
 };
 
 function App() {
@@ -43,144 +102,10 @@ function App() {
       <AuthProvider config={authConfig}>
         <Routes>
           <Route path="/" element={<Home />} />
-          {/* Ensure you map a route for the OAuth callback */}
           <Route path="/auth/callback" element={<AuthCallback />} />
         </Routes>
       </AuthProvider>
     </BrowserRouter>
   );
 }
-```
-
-## Configuration Options
-
-```typescript
-interface OAuth2Config {
-  clientId: string;                    // OAuth2 Client ID
-  authorizationEndpoint: string;       // Authorization endpoint URL
-  tokenEndpoint: string;               // Token endpoint URL
-  redirectUri: string;                 // Redirect URI for callback
-  revokeEndpoint?: string;             // Token revocation endpoint (optional)
-  userInfoEndpoint?: string;           // OIDC UserInfo endpoint (optional)
-  audience?: string;                   // OAuth2 audience parameter (optional)
-  scope?: string;                      // OAuth2 scope parameter
-  responseType?: string;               // Response type (default: 'code')
-  codeChallengeMethod?: 'S256';        // PKCE method (default: 'S256')
-  storage?: 'localStorage' | 'sessionStorage' | 'custom'; // Storage strategy
-  customStorage?: OAuth2Storage;       // Custom storage implementation
-  autoRefresh?: boolean;               // Enable auto token refresh (default: true)
-  refreshThreshold?: number;           // Seconds before expiry to refresh (default: 60)
-  logLevel?: 'none' | 'error' | 'warn' | 'info' | 'debug'; // Logging level
-  nonce?: string;                      // Custom nonce (optional)
-  redirectRoute?: string;              // Route to redirect to after login (optional)
-  logoutRedirectRoute?: string;        // Route to redirect to after logout (optional)
-  oAuthProvider?: 'witsauth' | string; // OAuth provider identifier
-  theme?: 'light' | 'dark' | 'system' | (() => 'light' | 'dark' | 'system' | string); // Theme type for hosted pages
-}
-```
-
-## Usage
-
-Use the `useAuth` hook to access user state and login/logout functions.
-
-```tsx
-import { useAuth } from '@witsauth/react-client';
-
-function Profile() {
-  const { isAuthenticated, login, logout, isLoading } = useAuth();
-
-  if (isLoading) return <div>Loading...</div>;
-
-  return (
-    <div>
-      {isAuthenticated ? (
-        <>
-          <p>Welcome!</p>
-          <button onClick={logout}>Logout</button>
-        </>
-      ) : (
-        <button onClick={login}>Login</button>
-      )}
-    </div>
-  );
-}
-```
-
-### Account Management
-
-You can seamlessly redirect the user to the Witsauth Account Management console (to update their profile, change password, etc.) by invoking the `navigateToAccountManagement()` method. This securely POSTs to the IAM backend to preserve the user's active session and safely redirects them back to your application when they are done.
-
-```tsx
-import { useAuth } from '@witsauth/react-client';
-
-function Settings() {
-  const { navigateToAccountManagement } = useAuth();
-
-  return (
-    <button onClick={navigateToAccountManagement}>
-      Manage Account
-    </button>
-  );
-}
-```
-
-## Advanced Usage
-
-### Custom Storage
-
-You can configure the library to use `sessionStorage` or provide your own custom storage implementation (e.g., for React Native).
-
-```typescript
-import { OAuth2Storage } from '@witsauth/react-client';
-
-class CustomStorage implements OAuth2Storage {
-  getItem(key: string): string | null {
-    // Your custom storage logic
-    return null;
-  }
-  
-  setItem(key: string, value: string): void {
-    // Your custom storage logic
-  }
-  
-  removeItem(key: string): void {
-    // Your custom storage logic
-  }
-}
-
-// Use in configuration
-const config = {
-  // ... other config
-  storage: 'custom',
-  customStorage: new CustomStorage()
-};
-```
-
-### Custom Redirect Routes For Login And Logout
-
-If you want the library to automatically redirect the user after a successful login or logout, you can configure the redirect routes. The library will use `window.location.assign` to perform a full page navigation.
-
-```typescript
-const authConfig = {
-  // ... other config
-  redirectRoute: '/dashboard',
-  logoutRedirectRoute: '/login'
-};
-```
-
-## API Interceptors
-
-To automatically attach the Bearer token to your secure API requests, use the `setupAxiosInterceptors` helper.
-
-```tsx
-import axios from 'axios';
-import { setupAxiosInterceptors } from '@witsauth/react-client';
-
-export const apiClient = axios.create({
-  baseURL: 'https://api.yourdomain.com'
-});
-
-// The interceptor will automatically inject Authorization: Bearer <token>
-// Note: You must pass the AuthClient instance, for example from useAuth().client
-// setupAxiosInterceptors(apiClient, authClient);
 ```

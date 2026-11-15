@@ -1,11 +1,11 @@
-import { STORAGE_KEYS, OAuth2Storage } from '../models/types';
+import { STORAGE_KEYS, type OAuth2Storage } from '../models/types.js';
 
 export class TokenStorage {
   private memoryStorage = new Map<string, string>();
 
   constructor(
     private storageType?: 'localStorage' | 'sessionStorage' | 'custom',
-    private customStorage?: OAuth2Storage
+    private customStorage?: OAuth2Storage,
   ) {}
 
   private getStorage(): OAuth2Storage {
@@ -25,14 +25,20 @@ export class TokenStorage {
         // Fallback to in-memory storage if web storage is blocked or unavailable in SSR
       }
     }
-    
+
     const store = this.memoryStorage;
     // Fallback in-memory storage for non-browser environments
     return {
-      getItem: (key: string) => store.has(key) ? store.get(key) as string : null,
-      setItem: (key: string, value: string) => { store.set(key, value); },
-      removeItem: (key: string) => { store.delete(key); },
-      clear: () => { store.clear(); },
+      getItem: (key: string) => (store.has(key) ? (store.get(key) as string) : null),
+      setItem: (key: string, value: string) => {
+        store.set(key, value);
+      },
+      removeItem: (key: string) => {
+        store.delete(key);
+      },
+      clear: () => {
+        store.clear();
+      },
     };
   }
 
@@ -56,6 +62,7 @@ export class TokenStorage {
     storage.removeItem(STORAGE_KEYS.TOKEN_TYPE);
     storage.removeItem(STORAGE_KEYS.SCOPE);
     storage.removeItem(STORAGE_KEYS.ID_TOKEN);
+    storage.removeItem(STORAGE_KEYS.RETURN_TO);
   }
 
   clearTemporary(): void {

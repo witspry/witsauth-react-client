@@ -3,22 +3,20 @@ import { resolve } from 'path';
 
 export default defineConfig({
   build: {
+    emptyOutDir: true,
     lib: {
-      entry: resolve(import.meta.dirname, 'src/index.ts'),
-      name: 'WitsAuthReactClient',
-      fileName: (format) => `index.${format}.js`
+      entry: {
+        index: resolve(import.meta.dirname, 'src/index.ts'),
+        next: resolve(import.meta.dirname, 'src/next.ts'),
+      },
+      formats: ['es', 'cjs'],
+      fileName: (format, entryName) => `${entryName}.${format === 'es' ? 'js' : 'cjs'}`,
     },
     rollupOptions: {
       external: ['react', 'react/jsx-runtime', 'react/jsx-dev-runtime', 'react-dom', 'axios'],
       output: {
-        globals: {
-          react: 'React',
-          'react-dom': 'ReactDOM',
-          'react/jsx-runtime': 'jsxRuntime',
-          'react/jsx-dev-runtime': 'jsxDevRuntime',
-          axios: 'axios'
-        }
-      }
-    }
-  }
+        banner: (chunk) => (chunk.isEntry && chunk.name === 'index' ? "'use client';\n" : ''),
+      },
+    },
+  },
 });

@@ -1,19 +1,27 @@
 {
   "name": "@witsauth/react-client",
-  "version": "1.3.9",
-  "description": "Official React client library for integrating Witsauth Single Sign-On (SSO) authentication or similar services into your React applications.",
-  "main": "./dist/index.umd.js",
-  "module": "./dist/index.es.js",
+  "version": "1.4.0",
+  "description": "Official React and Next.js BFF client library for integrating WitsAuth Single Sign-On (SSO) authentication into React SPAs and Next.js applications.",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.es.js",
-      "require": "./dist/index.umd.js",
-      "types": "./dist/index.d.ts"
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./next": {
+      "types": "./dist/next.d.ts",
+      "import": "./dist/next.js",
+      "require": "./dist/next.cjs"
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "dev": "vite",
@@ -22,9 +30,13 @@
   },
   "keywords": [
     "react",
+    "nextjs",
+    "bff",
     "auth",
     "oauth2",
-    "pkce"
+    "oidc",
+    "pkce",
+    "witsauth"
   ],
   "author": "",
   "license": "ISC",
@@ -35,19 +47,29 @@
       "onFail": "download"
     }
   },
-  "type": "module",
   "peerDependencies": {
     "axios": "^1.18.1",
+    "next": "^15.0.0 || ^16.0.0",
     "react": "^18.0.0 || ^19.0.0",
     "react-dom": "^18.0.0 || ^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "axios": {
+      "optional": true
+    },
+    "next": {
+      "optional": true
+    }
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^26.1.1",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
     "jsdom": "^29.1.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "typescript": "^7.0.2",
     "vite": "^8.1.5",
     "vitest": "^4.1.10"

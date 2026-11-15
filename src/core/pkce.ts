@@ -44,20 +44,22 @@ function base64UrlDecodeToUtf8(input: string): string {
   if (typeof atob === 'function') {
     const binary = atob(padded);
     const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
+    for (let i = 0; i < binary.length; i += 1) {
       bytes[i] = binary.charCodeAt(i);
     }
     if (typeof TextDecoder !== 'undefined') {
       return new TextDecoder().decode(bytes);
     }
     let out = '';
-    for (let i = 0; i < bytes.length; i++) {
-      out += String.fromCharCode(bytes[i]);
+    for (let i = 0; i < bytes.length; i += 1) {
+      out += String.fromCharCode(bytes[i] ?? 0);
     }
-    return decodeURIComponent(escape(out));
+    return out;
   }
 
-  const g = typeof globalThis !== 'undefined' ? (globalThis as any) : undefined;
+  const g = typeof globalThis !== 'undefined'
+    ? (globalThis as { Buffer?: { from(value: string, enc: string): { toString(enc: string): string } } })
+    : undefined;
   if (g?.Buffer) {
     return g.Buffer.from(padded, 'base64').toString('utf8');
   }
@@ -65,12 +67,15 @@ function base64UrlDecodeToUtf8(input: string): string {
   throw new Error('Unable to decode base64url string.');
 }
 
-export function decodeJwtPayload<T = Record<string, any>>(token: string | null | undefined): T | null {
+export function decodeJwtPayload<T = Record<string, unknown>>(
+  token: string | null | undefined,
+): T | null {
   if (!token || typeof token !== 'string') return null;
   const parts = token.split('.');
-  if (parts.length < 2) return null;
+  const payloadSegment = parts[1];
+  if (parts.length < 2 || !payloadSegment) return null;
   try {
-    const json = base64UrlDecodeToUtf8(parts[1]);
+    const json = base64UrlDecodeToUtf8(payloadSegment);
     return JSON.parse(json) as T;
   } catch {
     return null;
