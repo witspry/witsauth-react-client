@@ -1,6 +1,6 @@
 {
   "name": "@witsauth/react-client",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "Official React and Next.js BFF client library for integrating WitsAuth Single Sign-On (SSO) authentication into React SPAs and Next.js applications.",
   "type": "module",
   "sideEffects": false,
@@ -26,7 +26,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build && tsc -p tsconfig.build.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepublishOnly": "pnpm test && pnpm build"
   },
   "keywords": [
     "react",

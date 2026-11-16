@@ -838,12 +838,14 @@ export function createWitsAuthNextHandler(config: WitsAuthNextHandlerConfig): {
     }
 
     if (refreshToken && !impToken) {
+      let rotatedCookies: readonly string[] = [];
       try {
         const refreshed = await singleFlightRefreshOidcTokens(
           refreshToken,
           () => runRefreshTokens({ refreshToken, request }),
           { appScope: config.appScope },
         );
+        rotatedCookies = applyRotatedCookiesToArray(refreshed, secureCookie);
         const me = await runFetchSession({
           accessToken: refreshed.accessToken,
           isImpersonation: false,
@@ -870,13 +872,13 @@ export function createWitsAuthNextHandler(config: WitsAuthNextHandlerConfig): {
           200,
           { data: me.data },
           undefined,
-          applyRotatedCookiesToArray(refreshed, secureCookie),
+          rotatedCookies,
         );
       } catch (refreshErr) {
-        const clearCookies = isTerminalRefreshAuthError(refreshErr)
+        const setCookies = isTerminalRefreshAuthError(refreshErr)
           ? clearSessionCookieHeaders(secureCookie)
-          : [];
-        return jsonResponse(200, { data: unauthenticatedData }, undefined, clearCookies);
+          : rotatedCookies;
+        return jsonResponse(200, { data: unauthenticatedData }, undefined, setCookies);
       }
     }
 
@@ -942,12 +944,14 @@ export function createWitsAuthNextHandler(config: WitsAuthNextHandlerConfig): {
       return redirectToLoginAndClear();
     }
 
+    let rotatedCookies: readonly string[] = [];
     try {
       const refreshed = await singleFlightRefreshOidcTokens(
         refreshToken,
         () => runRefreshTokens({ refreshToken, request }),
         { appScope: config.appScope },
       );
+      rotatedCookies = applyRotatedCookiesToArray(refreshed, secureCookie);
       const validation = await validateEstablished({
         accessToken: refreshed.accessToken,
         request,
@@ -972,7 +976,7 @@ export function createWitsAuthNextHandler(config: WitsAuthNextHandlerConfig): {
       return redirectResponse(
         new URL(returnTo, publicOrigin).toString(),
         302,
-        applyRotatedCookiesToArray(refreshed, secureCookie),
+        rotatedCookies,
         { vary: FETCH_METADATA_VARY_HEADER },
       );
     } catch (err) {
@@ -981,6 +985,9 @@ export function createWitsAuthNextHandler(config: WitsAuthNextHandlerConfig): {
       }
       const outageRes = buildRefreshOutageHtmlResponse(returnTo);
       outageRes.headers.set('vary', FETCH_METADATA_VARY_HEADER);
+      for (const cookie of rotatedCookies) {
+        outageRes.headers.append('set-cookie', cookie);
+      }
       return outageRes;
     }
   }
@@ -1029,12 +1036,14 @@ export function createWitsAuthNextHandler(config: WitsAuthNextHandlerConfig): {
     if (!refreshToken) {
       return jsonErrorResponse(401, 'UNAUTHENTICATED', 'Missing refresh session.');
     }
+    let rotatedCookies: readonly string[] = [];
     try {
       const refreshed = await singleFlightRefreshOidcTokens(
         refreshToken,
         () => runRefreshTokens({ refreshToken, request }),
         { appScope: config.appScope },
       );
+      rotatedCookies = applyRotatedCookiesToArray(refreshed, secureCookie);
       const me = await runFetchSession({
         accessToken: refreshed.accessToken,
         isImpersonation: false,
@@ -1068,7 +1077,7 @@ export function createWitsAuthNextHandler(config: WitsAuthNextHandlerConfig): {
           },
         },
         undefined,
-        applyRotatedCookiesToArray(refreshed, secureCookie),
+        rotatedCookies,
       );
     } catch (err) {
       if (isTerminalRefreshAuthError(err)) {
@@ -1084,6 +1093,8 @@ export function createWitsAuthNextHandler(config: WitsAuthNextHandlerConfig): {
         503,
         'AUTH_REFRESH_UNAVAILABLE',
         'Authentication service is temporarily unavailable.',
+        undefined,
+        rotatedCookies,
       );
     }
   }
@@ -1106,6 +1117,47 @@ export function createWitsAuthNextHandler(config: WitsAuthNextHandlerConfig): {
     let revokedTokensAccess: string | undefined = accessToken;
     let revokedTokensRefresh: string | undefined = refreshToken;
 
+    const tryKeepSessionViaRefresh = async (
+      currentRefreshToken: string,
+    ): Promise<Response | null> => {
+      let rotatedCookies: readonly string[] = [];
+      try {
+        const refreshed = await singleFlightRefreshOidcTokens(
+          currentRefreshToken,
+          () => runRefreshTokens({ refreshToken: currentRefreshToken, request }),
+          { appScope: config.appScope },
+        );
+        rotatedCookies = applyRotatedCookiesToArray(refreshed, secureCookie);
+        revokedTokensAccess = refreshed.accessToken;
+        revokedTokensRefresh = refreshed.refreshToken ?? currentRefreshToken;
+        const me = await runFetchSession({
+          accessToken: refreshed.accessToken,
+          isImpersonation: false,
+          request,
+        });
+        if (me.ok) {
+          return jsonResponse(
+            200,
+            { data: { cleared: false, activeSession: true } },
+            undefined,
+            rotatedCookies,
+          );
+        }
+        return null;
+      } catch (refreshErr) {
+        if (!isTerminalRefreshAuthError(refreshErr)) {
+          return jsonErrorResponse(
+            503,
+            'AUTH_SESSION_CHECK_UNAVAILABLE',
+            'Authentication service is temporarily unavailable.',
+            undefined,
+            rotatedCookies,
+          );
+        }
+        return null;
+      }
+    };
+
     if (activeToken) {
       try {
         const me = await runFetchSession({
@@ -1127,68 +1179,16 @@ export function createWitsAuthNextHandler(config: WitsAuthNextHandlerConfig): {
           );
         }
         if (errInfo.statusCode === 401 && refreshToken && !impToken) {
-          try {
-            const refreshed = await singleFlightRefreshOidcTokens(
-              refreshToken,
-              () => runRefreshTokens({ refreshToken, request }),
-              { appScope: config.appScope },
-            );
-            revokedTokensAccess = refreshed.accessToken;
-            revokedTokensRefresh = refreshed.refreshToken ?? refreshToken;
-            const me = await runFetchSession({
-              accessToken: refreshed.accessToken,
-              isImpersonation: false,
-              request,
-            });
-            if (me.ok) {
-              return jsonResponse(
-                200,
-                { data: { cleared: false, activeSession: true } },
-                undefined,
-                applyRotatedCookiesToArray(refreshed, secureCookie),
-              );
-            }
-          } catch (refreshErr) {
-            if (!isTerminalRefreshAuthError(refreshErr)) {
-              return jsonErrorResponse(
-                503,
-                'AUTH_SESSION_CHECK_UNAVAILABLE',
-                'Authentication service is temporarily unavailable.',
-              );
-            }
+          const refreshedOutcome = await tryKeepSessionViaRefresh(refreshToken);
+          if (refreshedOutcome) {
+            return refreshedOutcome;
           }
         }
       }
     } else if (refreshToken && !impToken) {
-      try {
-        const refreshed = await singleFlightRefreshOidcTokens(
-          refreshToken,
-          () => runRefreshTokens({ refreshToken, request }),
-          { appScope: config.appScope },
-        );
-        revokedTokensAccess = refreshed.accessToken;
-        revokedTokensRefresh = refreshed.refreshToken ?? refreshToken;
-        const me = await runFetchSession({
-          accessToken: refreshed.accessToken,
-          isImpersonation: false,
-          request,
-        });
-        if (me.ok) {
-          return jsonResponse(
-            200,
-            { data: { cleared: false, activeSession: true } },
-            undefined,
-            applyRotatedCookiesToArray(refreshed, secureCookie),
-          );
-        }
-      } catch (refreshErr) {
-        if (!isTerminalRefreshAuthError(refreshErr)) {
-          return jsonErrorResponse(
-            503,
-            'AUTH_SESSION_CHECK_UNAVAILABLE',
-            'Authentication service is temporarily unavailable.',
-          );
-        }
+      const refreshedOutcome = await tryKeepSessionViaRefresh(refreshToken);
+      if (refreshedOutcome) {
+        return refreshedOutcome;
       }
     }
 

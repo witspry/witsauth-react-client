@@ -847,4 +847,194 @@ describe('@witsauth/react-client/next BFF kernel, handlers & proxies', () => {
       `${PUBLIC_ORIGIN}/login?returnTo=%2Fdashboard&authError=forbidden_staff_role`,
     );
   });
+
+  it('preserves rotated Set-Cookie and forwarded cookies on post-refresh 5xx errors in createWitsAuthNextProxy and createWitsAuthNextHandler (1.4.2)', async () => {
+    let validationMode: '503' | 'network' | '401' = '503';
+    const proxy = createWitsAuthNextProxy({
+      appScope: 'admin',
+      loginPath: '/login',
+      defaultReturnTo: '/dashboard',
+      accessCookieName: 'adm_acc',
+      refreshCookieName: 'adm_ref',
+      isSecureCookie: () => true,
+      refreshTokens: async () => ({
+        accessToken: 'proxy_acc_rot',
+        refreshToken: 'proxy_ref_rot',
+        expiresInSeconds: 600,
+      }),
+      validateRefreshedSession: async () => {
+        if (validationMode === '401') {
+          throw Object.assign(new Error('Invalid token'), { statusCode: 401 });
+        }
+        if (validationMode === 'network') {
+          throw new TypeError('fetch failed');
+        }
+        throw Object.assign(new Error('Upstream unavailable'), { statusCode: 503 });
+      },
+      next: (forwardedHeaders) =>
+        new Response('next', {
+          status: 200,
+          headers: forwardedHeaders
+            ? { 'x-forwarded-cookie': forwardedHeaders.get('cookie') ?? '' }
+            : {},
+        }),
+      redirect: (url, status) =>
+        new Response(null, { status, headers: { location: url.toString() } }),
+    });
+
+    const res503 = await proxy(
+      makeRequest(`${PUBLIC_ORIGIN}/dashboard`, {
+        headers: {
+          'sec-fetch-site': 'same-origin',
+          'sec-fetch-mode': 'navigate',
+          'sec-fetch-dest': 'document',
+        },
+        cookies: { adm_ref: 'proxy_rt_in_503' },
+      }),
+    );
+    expect(res503.status).toBe(200);
+    expect(res503.headers.get('x-forwarded-cookie')).toContain('adm_acc=proxy_acc_rot');
+    expect(res503.headers.get('x-forwarded-cookie')).toContain('adm_ref=proxy_ref_rot');
+    expect(res503.headers.getSetCookie().some((c) => c.startsWith('adm_acc=proxy_acc_rot;'))).toBe(
+      true,
+    );
+    expect(res503.headers.getSetCookie().some((c) => c.startsWith('adm_ref=proxy_ref_rot;'))).toBe(
+      true,
+    );
+
+    validationMode = 'network';
+    const resNetwork = await proxy(
+      makeRequest(`${PUBLIC_ORIGIN}/dashboard`, {
+        headers: {
+          'sec-fetch-site': 'same-origin',
+          'sec-fetch-mode': 'navigate',
+          'sec-fetch-dest': 'document',
+        },
+        cookies: { adm_ref: 'proxy_rt_in_net' },
+      }),
+    );
+    expect(resNetwork.status).toBe(200);
+    expect(
+      resNetwork.headers.getSetCookie().some((c) => c.startsWith('adm_acc=proxy_acc_rot;')),
+    ).toBe(true);
+    expect(
+      resNetwork.headers.getSetCookie().some((c) => c.startsWith('adm_ref=proxy_ref_rot;')),
+    ).toBe(true);
+
+    validationMode = '401';
+    const res401 = await proxy(
+      makeRequest(`${PUBLIC_ORIGIN}/dashboard`, {
+        headers: {
+          'sec-fetch-site': 'same-origin',
+          'sec-fetch-mode': 'navigate',
+          'sec-fetch-dest': 'document',
+        },
+        cookies: { adm_ref: 'proxy_rt_in_401' },
+      }),
+    );
+    expect(res401.status).toBe(307);
+    expect(
+      res401.headers.getSetCookie().some((c) => c.startsWith('adm_acc=;') && c.includes('Max-Age=0')),
+    ).toBe(true);
+    expect(
+      res401.headers.getSetCookie().some((c) => c.startsWith('adm_ref=;') && c.includes('Max-Age=0')),
+    ).toBe(true);
+
+    let rotCounter = 0;
+    const handler = createWitsAuthNextHandler({
+      appScope: 'admin',
+      cookies: {
+        accessCookieName: 'adm_acc',
+        refreshCookieName: 'adm_ref',
+        pkceCookieName: 'adm_pkce',
+      },
+      getPublicOrigin: () => PUBLIC_ORIGIN,
+      getCookieSecret: () => SECRET,
+      getClientId: () => 'satvikease-admin',
+      getAuthorizeUrl: () => 'https://auth.example/oauth/authorize',
+      isSecureCookie: () => true,
+      enableRefreshSessionGet: true,
+      enablePostRefresh: true,
+      enablePostClearStaleSession: true,
+      refreshTokens: async () => {
+        rotCounter += 1;
+        return {
+          accessToken: `rot_acc_${rotCounter}`,
+          refreshToken: `rot_ref_${rotCounter}`,
+          expiresInSeconds: 600,
+        };
+      },
+      validateEstablishedSession: async () => {
+        throw Object.assign(new Error('Upstream me unavailable'), { statusCode: 503 });
+      },
+      fetchSession: async ({ accessToken }) => {
+        if (accessToken === 'expired_acc') {
+          throw Object.assign(new Error('Expired'), { statusCode: 401 });
+        }
+        throw Object.assign(new Error('Upstream me unavailable'), { statusCode: 503 });
+      },
+    });
+
+    const expectRotatedCookies = (res: Response, idx: number): void => {
+      const cookies = res.headers.getSetCookie();
+      expect(cookies.some((c) => c.startsWith(`adm_acc=rot_acc_${idx};`))).toBe(true);
+      expect(cookies.some((c) => c.startsWith(`adm_ref=rot_ref_${idx};`))).toBe(true);
+    };
+
+    const sessRes = await handler.GET(
+      makeRequest(`${PUBLIC_ORIGIN}/api/auth/session`, {
+        cookies: { adm_ref: 'handler_rt_1' },
+      }),
+      { params: Promise.resolve({ action: ['session'] }) },
+    );
+    expect(sessRes.status).toBe(200);
+    expectRotatedCookies(sessRes, 1);
+
+    const refreshGetRes = await handler.GET(
+      makeRequest(`${PUBLIC_ORIGIN}/api/auth/refresh-session?returnTo=%2Fusers`, {
+        headers: {
+          'sec-fetch-site': 'same-origin',
+          'sec-fetch-mode': 'navigate',
+          'sec-fetch-dest': 'document',
+        },
+        cookies: { adm_ref: 'handler_rt_2' },
+      }),
+      { params: Promise.resolve({ action: ['refresh-session'] }) },
+    );
+    expect(refreshGetRes.status).toBe(503);
+    expectRotatedCookies(refreshGetRes, 2);
+
+    const postRefreshRes = await handler.POST(
+      makeRequest(`${PUBLIC_ORIGIN}/api/auth/refresh`, {
+        method: 'POST',
+        headers: { origin: PUBLIC_ORIGIN },
+        cookies: { adm_ref: 'handler_rt_3' },
+      }),
+      { params: Promise.resolve({ action: ['refresh'] }) },
+    );
+    expect(postRefreshRes.status).toBe(503);
+    expectRotatedCookies(postRefreshRes, 3);
+
+    const clearStale401Res = await handler.POST(
+      makeRequest(`${PUBLIC_ORIGIN}/api/auth/clear-stale-session`, {
+        method: 'POST',
+        headers: { origin: PUBLIC_ORIGIN },
+        cookies: { adm_acc: 'expired_acc', adm_ref: 'handler_rt_4' },
+      }),
+      { params: Promise.resolve({ action: ['clear-stale-session'] }) },
+    );
+    expect(clearStale401Res.status).toBe(503);
+    expectRotatedCookies(clearStale401Res, 4);
+
+    const clearStaleRefreshOnlyRes = await handler.POST(
+      makeRequest(`${PUBLIC_ORIGIN}/api/auth/clear-stale-session`, {
+        method: 'POST',
+        headers: { origin: PUBLIC_ORIGIN },
+        cookies: { adm_ref: 'handler_rt_5' },
+      }),
+      { params: Promise.resolve({ action: ['clear-stale-session'] }) },
+    );
+    expect(clearStaleRefreshOnlyRes.status).toBe(503);
+    expectRotatedCookies(clearStaleRefreshOnlyRes, 5);
+  });
 });

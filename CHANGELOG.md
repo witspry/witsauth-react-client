@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.4.2] - 2026-11-16
+
+### Fixed
+- **Post-Refresh Transient `5xx` Cookie Preservation (`createWitsAuthNextProxy` & `createWitsAuthNextHandler`):** Preserved newly rotated `Set-Cookie` headers (and forwarded rotated `cookie` headers in `createWitsAuthNextProxy`) whenever single-use OIDC refresh succeeds before a downstream `validateRefreshedSession` or `fetchSession` / `validateEstablishedSession` call throws a transient `5xx` or network error across `createWitsAuthNextProxy`, `GET /api/auth/session`, `GET /api/auth/refresh-session`, `POST /api/auth/refresh`, and `POST /api/auth/clear-stale-session`, while still clearing cookies on terminal `401` errors.
+
+### Chore
+- Added `"prepublishOnly": "pnpm test && pnpm build"` to `package.json` scripts so releases always run tests and rebuild `dist/` before packing.
+
+## [1.4.1] - 2026-11-15
+
+### Fixed
+- Added `Cache-Control: private, no-store` and `Vary: Cookie, Origin, Sec-Fetch-Site` on returning `guestSessionCookieName` BFF proxy responses and lazy `trustedClientIpHeader` getter support in `createBffProxy`.
+- Added best-effort `revokeSession` calls on rejected `GET /api/auth/session` tokens, `refreshed.refreshToken ?? refreshToken` fallbacks, `ValidateEstablishedSessionResult` / `revokeSession` support in `createWitsAuthNextProxy`, guarded `customPostActions` errors (`statusCode === 0` -> `502`), and `transientOutage` reporting in `AuthProvider.clearStaleSession()`.
+
 ## [1.4.0] - 2026-11-15
 
 ### Added

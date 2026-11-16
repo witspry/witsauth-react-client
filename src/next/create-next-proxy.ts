@@ -159,8 +159,46 @@ export function createWitsAuthNextProxy<TResponse extends { readonly headers: He
         );
       };
 
+      const forwardNextWithRotatedCookies = (tokens: NextProxyRefreshedTokens): TResponse => {
+        // Preserve original request headers without mutating request.headers directly.
+        const combinedHeaders = new Headers();
+        const headerSource = request.headers as unknown as {
+          forEach?: (cb: (val: string, key: string) => void) => void;
+        };
+        if (typeof headerSource.forEach === 'function') {
+          headerSource.forEach((val, key) => {
+            combinedHeaders.set(key, val);
+          });
+        }
+        let cookieHeader = injectCookieHeader(
+          request.headers.get('cookie'),
+          config.accessCookieName,
+          tokens.accessToken,
+        );
+        if (tokens.refreshToken) {
+          cookieHeader = injectCookieHeader(
+            cookieHeader,
+            config.refreshCookieName,
+            tokens.refreshToken,
+          );
+        }
+        combinedHeaders.set('cookie', cookieHeader);
+
+        const response = config.next(combinedHeaders);
+        applyRefreshedAuthCookies(response.headers, tokens, {
+          accessCookieName: config.accessCookieName,
+          refreshCookieName: config.refreshCookieName,
+          secure: secureCookie,
+          defaultRefreshMaxAgeSeconds,
+          ...(config.cookiePath !== undefined ? { cookiePath: config.cookiePath } : {}),
+          ...(config.sameSite !== undefined ? { sameSite: config.sameSite } : {}),
+        });
+        return response;
+      };
+
+      let refreshed: NextProxyRefreshedTokens | undefined;
       try {
-        const refreshed = await singleFlightRefreshOidcTokens(
+        refreshed = await singleFlightRefreshOidcTokens(
           refreshToken,
           () => config.refreshTokens(refreshToken, request),
           { appScope: config.appScope },
@@ -193,45 +231,18 @@ export function createWitsAuthNextProxy<TResponse extends { readonly headers: He
           }
         }
 
-        // Preserve original request headers without mutating request.headers directly.
-        const combinedHeaders = new Headers();
-        const headerSource = request.headers as unknown as {
-          forEach?: (cb: (val: string, key: string) => void) => void;
-        };
-        if (typeof headerSource.forEach === 'function') {
-          headerSource.forEach((val, key) => {
-            combinedHeaders.set(key, val);
-          });
-        }
-        let cookieHeader = injectCookieHeader(
-          request.headers.get('cookie'),
-          config.accessCookieName,
-          refreshed.accessToken,
-        );
-        if (refreshed.refreshToken) {
-          cookieHeader = injectCookieHeader(
-            cookieHeader,
-            config.refreshCookieName,
-            refreshed.refreshToken,
-          );
-        }
-        combinedHeaders.set('cookie', cookieHeader);
-
-        const response = config.next(combinedHeaders);
-        applyRefreshedAuthCookies(response.headers, refreshed, {
-          accessCookieName: config.accessCookieName,
-          refreshCookieName: config.refreshCookieName,
-          secure: secureCookie,
-          defaultRefreshMaxAgeSeconds,
-          ...(config.cookiePath !== undefined ? { cookiePath: config.cookiePath } : {}),
-          ...(config.sameSite !== undefined ? { sameSite: config.sameSite } : {}),
-        });
-        return response;
+        return forwardNextWithRotatedCookies(refreshed);
       } catch (err) {
         if (isTerminalRefreshAuthError(err)) {
           const redirectRes = buildLoginRedirect();
           appendClearedCookies(redirectRes.headers);
           return redirectRes;
+        }
+        // R8-M2: If single-use refresh succeeded before validateRefreshedSession threw a
+        // transient 5xx/network error, still emit Set-Cookie + forwarded rotated cookies so
+        // the browser never stays stuck on the spent refresh token while SSR guards still run.
+        if (refreshed) {
+          return forwardNextWithRotatedCookies(refreshed);
         }
         // Transient 5xx / network error: preserve cookies and allow protected route recovery UI.
         return config.next();
